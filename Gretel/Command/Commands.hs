@@ -1,15 +1,19 @@
 module Gretel.Command.Commands
 ( rootMap
+, ioMap
+, ioHuh
 , huh
 ) where
 
 import Prelude hiding (take, drop)
-import Gretel.Types
 import Gretel.World
+import Gretel.Command.Types
 import Data.Maybe
+import System.IO.Unsafe
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.List (intercalate)
+import System.Exit
 
 rootMap = M.fromList $
   [ ("go", go)
@@ -21,68 +25,120 @@ rootMap = M.fromList $
   , ("enter", enter)
   , ("exit", exit)
   , ("describe", describe)
+  , ("examine", examine)
   ]
 
-go :: Command
+go :: Command String
 go n [dir] w = case n `goes` dir $ w of
-  (False,w') -> (return "You can't go that way!",w')
+  (False,w') -> ("You can't go that way!",w')
   (True, w') -> look n [] w'
-go _ [] w = (return "Go where?",w)
+go _ [] w = ("Go where?",w)
 go _ _ w = huh w
 
-take :: Command
+take :: Command String
 take n [t] w = case n `takes` t $ w of
-  (False,w') -> (return $ "There's no " ++ t ++ " here.",w')
-  (True, w') -> (return $ "You now have a " ++ t ++ ".",w')
-take _ [] w = (return "Take what?",w)
+  (False,w') -> ("There's no " ++ t ++ " here.",w')
+  (True, w') -> ("You now have a " ++ t ++ ".",w')
+take _ [] w = ("Take what?",w)
 
-exit :: Command
+exit :: Command String
 exit n [] w = case n `leaves` (name $ locOf n w) $ w of
-  (False,w') -> (return "You can't exit your current location.",w')
+  (False,w') -> ("You can't exit your current location.",w')
   (True,w')  -> look n [] w'
 exit _ _ w = huh w
 
-huh :: WorldTransformer (IO String)
-huh w = (return $ "Huh?",w)
+huh :: WorldTransformer String
+huh w = ("Huh?",w)
 
-look :: Command
-look n [] w = (return $ desc (locOf n w) [n],w)
+look :: Command String
+look n [] w = (desc (locOf n w) [n],w)
 look _ _ w  = huh w
 
-make :: Command
+make :: Command String
 make n [o] w = case n `makes` o $ w of
-  (False,w')  -> (return $ o ++ " already exists!",w')
-  (True,w') -> (return $ "You've created a " ++ o ++ "!",w')
+  (False,w')  -> (o ++ " already exists!",w')
+  (True,w') -> ("You've created " ++ o ++ "!",w')
 make _ _ w = huh w
 
-enter :: Command
+enter :: Command String
 enter n [o] w = case n `enters` o $ w of
-  (False,w') -> (return $ "You can't enter "++o++".",w')
+  (False,w') -> ("You can't enter "++o++".",w')
   (True,w')  -> look n [] w'
+enter _ [] w = ("Enter where?",w)
 enter _ _ w = huh w
 
-drop :: Command
+drop :: Command String
 drop n [o] w = case n `drops` o $ w of
-  (False,w') -> (return $ "You can't drop what you don't have!",w')
-  (True,w')  -> (return $ "You drop a " ++ o ++ ".",w')
+  (False,w') -> ("You can't drop what you don't have!",w')
+  (True,w')  -> ("You drop " ++ o ++ ".",w')
 drop _ _ w = huh w
 
-link :: Command
+link :: Command String
 link n [n1,n2,d] w = case (n1 `adjoins` n2) d w of
-  (False,w') -> (return $ "You can't link those rooms!",w')
-  (True,w')  -> (return $ n1 ++ " now adjoins " ++ n2,w')
+  (False,w') -> ("You can't link those rooms!",w')
+  (True,w')  -> (n1 ++ " now adjoins " ++ n2,w')
 link _ _ w = huh w
 
-describe :: Command
-describe n [o,d] w = case (n `describes` o) d w of
+describe :: Command String
+describe n [o,d] w = case (d `describes` o) w of
   (False,w') -> huh w'
-  (True,w')  -> (return $ "Ok.",w')
+  (True,w')  -> ("Ok.",w')
 describe _ _ w = huh w
+
+examine :: Command String
+examine n [t] w = case find2 n t w of
+  Nothing -> huh w
+  Just (n1,n2) -> if location n1 == location n2
+                  then (desc n2 [],w)
+                  else ("You see no "++t++" here.",w)
+examine _ [] w = ("Examine what?",w)
+examine _ _ w = huh w
+
+-- IO versions of basic commands
+
+-- | Converts a command into an IO version.
+ioify :: Command a -> Command (IO a)
+ioify c n as w = let (r,w') = c n as w in (return r,w')
+
+ioMap :: CommandMap (IO String)
+ioMap = M.union (M.map ioify rootMap) . M.fromList $
+  [ ("save",dump)
+  , ("load",load)
+  , ("quit",quit)
+  ]
+
+-- | Write the current world state to a file.
+-- TODO: Stop taking arbitrary pathnames! Maybe introduce a 'data dir'
+-- parameter to the (yet unimplemented) program runner fn.
+dump :: Command (IO String)
+dump n [d] w = (r,w)
+  where r = do writeFile d $ show w
+               return $ "World dumped to " ++ d
+dump _ _ w = (return "Huh?",w)
+
+ioHuh :: WorldTransformer (IO String)
+ioHuh w = (return "Huh?",w)
+
+-- | Load the world from a file.
+-- TODO: This is obviously gross. We should invoke this from the program
+-- runner, not the world runner. We should also introduce some sanity 
+-- checking & xptn handling here.
+load :: Command (IO String)
+load n [f] w = (r,w')
+  where r = return $ "World read from " ++ f
+        w' = read . unsafePerformIO $ readFile f
+
+-- | End the current session.
+-- TODO: This should not exit! We want it to close the connection
+-- with a client. But we don't have connections yet, so...
+quit :: Command (IO String)
+quit n [] w = (r,w)
+  where r = putStrLn "Bye!" >> exitSuccess
 
 -- helper fns
 
 locOf :: Name -> World -> Node
-locOf n w = let n' = fromJust $ M.lookup n w in fromJust $ M.lookup (fromJust $ location n') w
+locOf n w = let n' = w M.! n in  w M.! (fromJust $ location n')
 
 desc n xs = let cs = S.toList $ contents n S.\\ S.fromList xs
   in intercalate "\n" $

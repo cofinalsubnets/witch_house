@@ -2,24 +2,22 @@ module Gretel.Command.Processor
 ( parseCommand
 ) where
 
-import Gretel.Types
-import Gretel.Command.Commands (huh)
+import Gretel.World (WorldTransformer)
+import Gretel.Command.Types
 import Data.Map (Map)
 import qualified Data.Map as M
-import Control.Monad
 import Data.Char
 
-parseCommand :: CommandMap -> String -> WorldTransformer (IO String)
-parseCommand cm s = case tokenize s of
-  Nothing -> huh
-  Just ss -> case ss of
-    n:c:args -> case M.lookup c cm of
-      Just comm -> comm n args
-      Nothing -> huh
-    _ -> huh
+parseCommand :: CommandMap a -> String -> Maybe (WorldTransformer a)
+parseCommand cm s = do
+  toks <- tokenize s
+  case toks of
+    n:c:args -> do comm <- M.lookup c cm
+                   return $ comm n args
+    _ -> Nothing
 
 tokenize :: String -> Maybe [String]
-tokenize s = mapM id $ unquoted s []
+tokenize s = sequence $ unquoted s []
   where
 
     unquoted [] [] = []

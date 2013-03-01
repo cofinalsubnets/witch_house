@@ -1,14 +1,10 @@
-module Gretel.Node
-( Direction
-, Name
-, Node(..)
-, Property(..)
-, mkNode
+module Gretel.World.Node
+( mkNode
 ) where
 
 import qualified Data.Set as S
 import qualified Data.Map as M
-import Gretel.Types
+import Gretel.World.Types
 
 mkNode :: Node
 mkNode = Node { location    = Nothing
