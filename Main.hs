@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 module Main where
 
-import Data.Maybe
 import Data.Time
 import Control.Monad
 import Control.Concurrent.STM
@@ -111,8 +110,8 @@ respond w c = do
       let txt' = unwords [n,txt]
           cmd  = parse txt'
           (r,w') = cmd w
-      hPutStrLn h r
-      hFlush h
+      when (not $ null r) $ 
+        hPutStrLn h r >> hFlush h
       respond w' c
     Login n h -> do
       if not $ M.member n w
@@ -124,7 +123,7 @@ respond w c = do
       where
         greeting = (hPutStrLn h $ "Hiya " ++ n ++ "!")
   where
-    parse = fromMaybe huh . parseCommand rootMap
+    parse = parseCommand rootMap
 
 
 -- Types and helper functions.

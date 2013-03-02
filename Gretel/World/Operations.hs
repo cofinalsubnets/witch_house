@@ -1,6 +1,7 @@
 module Gretel.World.Operations
 ( NodeOp2
 , Predicate2
+, from
 , find2
 , has
 , goes
@@ -11,6 +12,7 @@ module Gretel.World.Operations
 , goesTo
 , drops
 , adjoins
+, deadends
 , describes
 , addNode -- TODO: don't export this!
 ) where
@@ -69,6 +71,14 @@ n1 `adjoins` n2 = \d w ->
     Just (n1',_) ->
       let n1'' = n1' { edges = M.insert d n2 (edges n1') }
       in (True, M.insert n1 n1'' w)
+
+deadends :: Name -> Direction -> WorldTransformer Bool
+n `deadends` dir = \w ->
+  case M.lookup n w of
+    Nothing -> (False,w)
+    Just n' ->
+      let n'' = n' { edges = M.delete dir (edges n') }
+      in (True, M.insert n n'' w)
 
 -- | Set the description field of a node.
 describes :: NodeOp2

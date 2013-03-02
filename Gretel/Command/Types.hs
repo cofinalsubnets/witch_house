@@ -6,6 +6,6 @@ module Gretel.Command.Types
 import Gretel.World (Name, WorldTransformer)
 import Data.Map (Map)
 
-type Command a = Name -> [String] -> WorldTransformer a
-type CommandMap a = Map String (Command a)
+type Command = Name -> [String] -> WorldTransformer String
+type CommandMap = Map String Command
 
