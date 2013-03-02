@@ -3,9 +3,13 @@ GHCFLAGS := -Wall -Werror -O2
 
 build:
 	ghc --make Main.hs -o ${BINNAME} ${GHCFLAGS}
+
+install: gretel
+	mv gretel ~/bin
+
 clean:
 	find . -regex ".*\.\(o\|\hi\)" -delete
-#	zsh -c "rm -f **/*.{hi,o}"
 
-.PHONY: build clean
+
+.PHONY: build install clean
 

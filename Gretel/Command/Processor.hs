@@ -5,16 +5,17 @@ module Gretel.Command.Processor
 
 import Gretel.World (WorldTransformer)
 import Gretel.Command.Types
+import Gretel.Command.Response
 import Data.Char
 import Data.List (isPrefixOf)
 import qualified Data.Map as M
 
 -- | Given a command map and a raw input string, returns a
 -- world transformer.
-parseCommand :: CommandMap -> String -> WorldTransformer String
+parseCommand :: CommandMap -> String -> WorldTransformer Response
 parseCommand cm s = case tokenize s of
   Just (n:c:args) -> mLookup c cm n args
-  _ -> ("Huh?",)
+  _ -> (self "Huh?",)
 
 
 mLookup :: String -> CommandMap -> Command
@@ -22,11 +23,11 @@ mLookup k cm = case M.lookup k cm of
   Just c -> c
   Nothing -> case filter (isPrefixOf k) (M.keys cm) of
     [m] -> cm M.! m
-    [] -> \_ _ -> ("I don't know what `"++k++"' means.",)
-    ms -> \_ _ -> ("You could mean: " ++ show ms,)
+    [] -> \_ _ -> (self $ "I don't know what `"++k++"' means.",)
+    ms -> \_ _ -> (self $ "You could mean: " ++ show ms,)
   
 
--- | TODO: make this suck less.
+-- | TODO: Write tests for this. Make it generally suck less.
 tokenize :: String -> Maybe [String]
 tokenize s = sequence $ unquoted s []
   where

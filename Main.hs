@@ -1,23 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
 module Main where
 
-import Data.Time
-import Control.Monad
-import Control.Concurrent.STM
-import GHC.Conc (forkIO)
-import Network
-import Network.BSD (getHostName)
+import Data.Version
 import System.Console.GetOpt
 import System.Environment (getArgs)
 import System.Exit
-import System.IO
-import System.IO.Unsafe (unsafePerformIO)
-import System.Locale (defaultTimeLocale)
 
-import qualified Data.Map as M
-
-import Gretel.Command
-import Gretel.World
+import Gretel.Server
 
 
 -- | Startup is basically a three-stage process:
@@ -30,11 +19,7 @@ import Gretel.World
 -- (b) an updated world state, which will be used when handling subsequent
 -- requests.
 main :: IO ()
-main = do
-  opts <- getArgs >>= parseArgs
-  chan <- atomically $ newTQueue
-  _ <- forkIO $ listen opts chan
-  respond (world opts) chan
+main = getArgs >>= parseArgs >>= startServer
 
 
 -- | Parse command line arguments.
@@ -42,154 +27,74 @@ main = do
 parseArgs :: [String] -> IO Options
 parseArgs args = do
   case getOpt Permute options args of
-    (o,[],[]) -> return $ foldr ($) defaults o
+    (o,[],[]) -> foldr ($) (return defaults) o
     (_,_,_) -> exitFailure
   where options = [ Option "p" ["port"]
-                    (ReqArg (\n opt -> opt { portNo = read n}) "PORT")
+                    (ReqArg (\n opt -> opt >>= \o -> return $ o { portNo = read n}) "PORT")
                       "local port to listen on"
+                  {- -- not implemented yet
                   , Option "m" ["max-clients"]
-                    (ReqArg (\n opt -> opt { maxClients = read n }) "CLIENTS")
+                    (ReqArg (\n opt -> opt >>= \o -> return $ o { maxClients = read n }) "CLIENTS")
                       "maximum number of parallel clients"
+                  -}
                   , Option "f" ["file"]
-                    (ReqArg (\f opt -> opt { world = readWorld f }) "FILE")
-                      "file from which to read initial world state"
-                  , Option [] ["no-log"]
-                    (NoArg (\opt -> opt { logging = False }))
-                      "disable console logging"
+                    (ReqArg readWorld "FILE")
+                      "file containing initial world state"
+                  , Option "q" ["quiet"]
+                    (NoArg $ setVerbosity "0")
+                      "suppress console logging"
+                  , Option "v" ["version"]
+                    (NoArg (\_ -> vn >> exitSuccess))
+                      "print version and exit"
+                  , Option "V" ["verbosity"]
+                    (ReqArg setVerbosity "N")
+                      "verbosity of log messages"
+                  , Option "h" ["help"]
+                    (NoArg (\_ -> usage >> exitSuccess))
+                      "print this message and exit"
                   ]
 
-        -- TODO: think of a better way to do this. add sanity checks.
-        readWorld f = unsafePerformIO $ do
-          putStr $ "Reading initial state from " ++ f ++ "..."
+        vn = putStrLn $ "Gretel " ++ showVersion version
+
+        setVerbosity n o = do
+          opt <- o
+          v <-  case n of
+            "0" -> return V0
+            "1" -> return V1
+            "2" -> return V2
+            _ -> do 
+              putStrLn $ concat [ "# Invalid verbosity level `"
+                                , n
+                                , "' -- defaulting to level 1"
+                                ]
+              return V1
+          return $ opt { verbosity = v }
+
+        usage = do
+          let header = "Usage: gretel [OPTIONS...]"
+          putStrLn $ usageInfo header options
+
+        -- TODO: Add sanity checks.
+        readWorld f o = do
+          opt <- o
           txt <- readFile f
+          putStr $ "# Reading initial state from " ++ f ++ "..."
           let !w = read txt :: World
           putStrLn " done!"
-          return w
-
-
--- | Accept connections on the designated port. For each connection,
--- fork off a process to forward its requests to the queue.
-listen :: Options -> TQueue Req -> IO ()
-listen opts chan = do
-  let p = portZero + (fromIntegral . portNo $ opts) -- ugghhh
-  sock <- listenOn . PortNumber $ p
-  putStrLn . startMsg $ show p
-  forever $ do
-    (h,hn,p') <- accept sock
-    when (logging opts) $ logT $ "connected: " ++ hn ++ ":" ++ show p'
-    forkIO $ login h hn p'
-
-  where
-
-    login h hn p= do
-      hPutStr h "What's yr name?? "
-      n <- hGetLine h
-      atomically $ writeTQueue chan (Login n h)
-      serve h n hn p
-
-    serve h n hn p = do
-      msg <- hGetLine h
-      if msg == "quit"
-        then do hPutStrLn h "Bye!"
-                hFlush h
-                hClose h
-                when (logging opts) $ logT $ "disconnected: " ++ hn ++ ":" ++ show p
-        else do let c = Conn h n
-                    r = Act c msg
-                atomically $ writeTQueue chan r
-                serve h n hn p
-
-
--- | Pull requests off of the queue, parse them into commands, update the world
--- as necessary, and send appropriate responses back to clients.
-respond :: World -> TQueue Req -> IO ()
-respond w c = do
-  req <- atomically $ readTQueue c
-  case req of
-    Act (Conn h n) txt -> do
-      let txt' = unwords [n,txt]
-          cmd  = parse txt'
-          (r,w') = cmd w
-      when (not $ null r) $ 
-        hPutStrLn h r >> hFlush h
-      respond w' c
-    Login n h -> do
-      if not $ M.member n w
-        then let node = mkNode { name = n, location = Just "Root of the World" }
-                 w'   = addNode node w
-             in greeting >> respond w' c
-        else greeting >> respond w c
-
-      where
-        greeting = (hPutStrLn h $ "Hiya " ++ n ++ "!")
-  where
-    parse = parseCommand rootMap
+          return $ opt { world = w }
 
 
 -- Types and helper functions.
 
-data Options = Options { portNo     :: !Int
-                       , maxClients :: Int              -- not implemented
-                       , world      :: !World
-                       , dataDir    :: (Maybe FilePath) -- also not implemented
-                       , logging    :: Bool
-                       }
-
-defaults :: Options
-defaults = Options { portNo = 10101
-                   , maxClients = 10
-                   , world = testWorld
-                   , dataDir = Nothing
-                   , logging = True
-                   }
-
-data Conn = Conn { connHandle :: Handle
-                 , connName   :: Name
-                 } deriving (Show)
-
-data Req = Act { conn :: Conn
-               , text :: String
-               } |
-           Login String Handle deriving (Show)
-
-version :: String
-version = "v0.0.0a"
-
--- | This exists because the lack of a Read instance for PortNumber or an
--- exported intToPortNumber function means that the only way I could find
--- to make a PortNumber out of a command line argument was to do arithmetic -
--- possible because (reasonably?) PortNumber _does_ have a Num instance.
---
--- Also, as well as being a type, PortNumber turns out to be a type constructor
--- for PortID, which takes a PortNumber argument. What I'm saying is, this API is
--- a little weird.
-portZero :: PortNumber
-portZero = 0
-
 startMsg :: String -> String
 startMsg p = concat $
   [ "Gretel " 
-  , version 
+  , showVersion version 
   , " is listening on port " 
   , p
   , "."
   ]
 
-
--- | Log a message to the console with a timestamp.
--- TODO: Greater configurability. Maybe a command line option for the format
--- string.
-logT :: String -> IO ()
-logT s = do
-  time <- getCurrentTime
-  host <- getHostName
-  let loc = defaultTimeLocale
-      fmt = "%d/%m %X"
-  putStrLn $ unwords [(formatTime loc fmt time), host, ":", s]
-
-testWorld :: World
-testWorld = let root = mkNode { name = "Root of the World"
-                              , description = "\"For the leaves to touch the sky, the roots much reach deep into hell.\"\n  --Thomas Mann"
-                              }
-  in addNode root $ M.fromList []
+version :: Version
+version = Version [0,0,0] ["pre-pre-alpha"]
 
