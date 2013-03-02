@@ -13,9 +13,70 @@ import System.Environment (getArgs)
 import Data.Time
 import System.Locale (defaultTimeLocale)
 import Network.BSD (getHostName)
+import Control.Concurrent.STM
 
 import qualified Data.Map as M
 import qualified Data.Set as S
+
+main :: IO ()
+main = do
+  opts <- getArgs >>= parseArgs
+  chan <- atomically $ newTQueue
+  forkIO $ respond chan (world opts)
+  listen opts chan
+  where
+    respond c w = do
+      req <- atomically $ readTQueue c
+      case req of
+        Act (Conn h n) txt -> do
+          let txt' = unwords [n,txt]
+              cmd  = parse txt'
+              (r,w') = cmd w
+          hPutStrLn h r
+          hFlush h
+          respond c w'
+        Login n h -> do
+          if not $ M.member n w
+            then let node = mkNode { name = n, location = Just "Root of the World" }
+                     w'   = addNode node w
+                 in greeting >> respond c w'
+            else greeting >> respond c w
+          where greeting = (hPutStrLn h $ "Hiya " ++ n ++ "!")
+              
+
+        
+listen :: Gretel -> TQueue Req -> IO ()
+listen opts chan = do
+  let p = portZero + (fromIntegral . portNo $ opts)
+  sock <- listenOn . PortNumber $ p
+  putStrLn . startMsg $ show p
+  forever $ do
+    (h,_,_) <- accept sock
+    forkIO $ login h
+  where
+    login h = do
+      hPutStr h "What's yr name?? "
+      n <- hGetLine h
+      atomically $ writeTQueue chan (Login n h)
+      serve h n
+
+    serve h n = do
+      msg <- hGetLine h
+      if msg == "quit"
+        then do hPutStrLn h "Bye!"
+                hFlush h
+                hClose h
+        else do let c = Conn h n
+                    r = Act c msg
+                atomically $ writeTQueue chan r
+                serve h n
+  
+
+
+type Parser = String -> WorldTransformer String
+
+parse = fromMaybe huh . parseCommand rootMap
+
 
 portZero :: PortNumber
 portZero = 0
@@ -32,27 +93,15 @@ defaults = Gretel { portNo = 10101
                   , dataDir = Nothing
                   }
 
-runWorld :: World -> [WorldTransformer a] -> [a]
-runWorld w [] = []
-runWorld w (t:ts) = let (r,w') = t w in r:(runWorld w' ts)
-
 data Conn = Conn { connHandle :: Handle
                  , connName   :: Name
                  } deriving (Show)
 
-data Req = Req { text :: String
-               , conn :: Conn
-               } deriving (Show)
+data Req = Act { conn :: Conn
+               , text :: String
+               } |
+           Login String Handle deriving (Show)
 
-type Parser = String -> WorldTransformer String
-
-runIO :: World -> Parser -> [Req] -> IO ()
-runIO w p reqs = let cmds  = map parse reqs
-                     resps = runWorld w cmds
-  in mapM_ respond $ reqs `zip` resps
-  where respond (req,resp) = hPutStrLn (connHandle . conn $ req) resp
-        parse r = let n = connName . conn $ r
-                  in p $ unwords [n, text r]
 
 parseArgs args = do
   case getOpt Permute options args of
@@ -78,25 +127,6 @@ parseArgs args = do
 
 
 
-main = do
-  opts <- getArgs >>= parseArgs
-  let p = portZero + (fromIntegral . portNo $ opts)
-  sock <- listenOn . PortNumber $ p
-  putStrLn . startMsg $ show p
-  loop parse (world opts) sock
-
-loop pr w sock = do
-   (h,hn,p) <- accept sock
-   logT $ "accepted connection from " ++ hn ++ ":" ++ show p
-   forkIO $ body h hn p
-   loop pr w sock
-  where
-   body h hn p = do
-       run h h pr w
-       hFlush h
-       hClose h
-       logT $ "closed connection from " ++ hn ++ ":" ++ show p
-
 version = "0.0.0"
 
 startMsg p = concat $
@@ -115,28 +145,12 @@ logT s = do
   putStrLn $ unwords [(formatTime loc fmt time), host, ":", s]
 
 
-run i o p w = do
-  hPutStr o "> "
-  hFlush o
-  c <- hGetLine i
-  if c == "quit"
-    then hPutStrLn o "Bye!"
-    else do let cmd = p c
-                (r,w') = cmd w
-            hPutStrLn o r
-            run i o p w'
-
 prefix p s = p ++ " " ++ s
 
-parse = fromMaybe huh . parseCommand rootMap . prefix "player"
 
 testWorld :: World
 testWorld = let root = mkNode { name = "Root of the World"
                               , description = "\"For the leaves to touch the sky, the roots much reach deep into hell.\"\n  --Thomas Mann"
-                              , contents = S.fromList ["player"]
                               }
-                player= mkNode { name = "player"
-                               , location = Just "Root of the World"
-                               }
-  in addNode player . addNode root $ M.fromList []
+  in addNode root $ M.fromList []
 

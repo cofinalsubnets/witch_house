@@ -7,6 +7,7 @@ module Gretel.World
 import Gretel.World.Node
 import Gretel.World.Operations
 import Gretel.World.Types
+import Control.Monad.State.Strict
 
 import qualified Data.Set as S
 import qualified Data.Map as M
