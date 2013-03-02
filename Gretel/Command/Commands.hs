@@ -1,7 +1,5 @@
 module Gretel.Command.Commands
 ( rootMap
-, ioMap
-, ioHuh
 , huh
 ) where
 
@@ -93,47 +91,6 @@ examine n [t] w = case find2 n t w of
                   else ("You see no "++t++" here.",w)
 examine _ [] w = ("Examine what?",w)
 examine _ _ w = huh w
-
--- IO versions of basic commands
-
--- | Converts a command into an IO version.
-ioify :: Command a -> Command (IO a)
-ioify c n as w = let (r,w') = c n as w in (return r,w')
-
-ioMap :: CommandMap (IO String)
-ioMap = M.union (M.map ioify rootMap) . M.fromList $
-  [ ("save",dump)
-  , ("load",load)
-  , ("quit",quit)
-  ]
-
--- | Write the current world state to a file.
--- TODO: Stop taking arbitrary pathnames! Maybe introduce a 'data dir'
--- parameter to the (yet unimplemented) program runner fn.
-dump :: Command (IO String)
-dump n [d] w = (r,w)
-  where r = do writeFile d $ show w
-               return $ "World dumped to " ++ d
-dump _ _ w = (return "Huh?",w)
-
-ioHuh :: WorldTransformer (IO String)
-ioHuh w = (return "Huh?",w)
-
--- | Load the world from a file.
--- TODO: This is obviously gross. We should invoke this from the program
--- runner, not the world runner. We should also introduce some sanity 
--- checking & xptn handling here.
-load :: Command (IO String)
-load n [f] w = (r,w')
-  where r = return $ "World read from " ++ f
-        w' = read . unsafePerformIO $ readFile f
-
--- | End the current session.
--- TODO: This should not exit! We want it to close the connection
--- with a client. But we don't have connections yet, so...
-quit :: Command (IO String)
-quit n [] w = (r,w)
-  where r = putStrLn "Bye!" >> exitSuccess
 
 -- helper fns
 
