@@ -4,9 +4,8 @@ module Gretel.Command.Processor
 
 import Gretel.World (WorldTransformer)
 import Gretel.Command.Types
-import Data.Map (Map)
-import qualified Data.Map as M
 import Data.Char
+import qualified Data.Map as M
 
 parseCommand :: CommandMap a -> String -> Maybe (WorldTransformer a)
 parseCommand cm s = do
@@ -31,7 +30,7 @@ tokenize s = sequence $ unquoted s []
       | c == '"'  = (Just $ reverse a):(quoted   cs [])
       | otherwise = unquoted cs (c:a)
 
-    quoted [] a = [Nothing]
+    quoted [] _ = [Nothing]
     quoted (c:cs) a
       | c == '"'  = if null a
                     then unquoted cs []

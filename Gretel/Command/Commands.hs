@@ -7,12 +7,11 @@ import Prelude hiding (take, drop)
 import Gretel.World
 import Gretel.Command.Types
 import Data.Maybe
-import System.IO.Unsafe
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.List (intercalate)
-import System.Exit
 
+rootMap :: CommandMap String
 rootMap = M.fromList $
   [ ("go", go)
   , ("take", take)
@@ -38,6 +37,7 @@ take n [t] w = case n `takes` t $ w of
   (False,w') -> ("There's no " ++ t ++ " here.",w')
   (True, w') -> ("You now have a " ++ t ++ ".",w')
 take _ [] w = ("Take what?",w)
+take _ _ w = huh w
 
 exit :: Command String
 exit n [] w = case n `leaves` (name $ locOf n w) $ w of
@@ -72,13 +72,13 @@ drop n [o] w = case n `drops` o $ w of
 drop _ _ w = huh w
 
 link :: Command String
-link n [n1,n2,d] w = case (n1 `adjoins` n2) d w of
+link _ [n1,n2,d] w = case (n1 `adjoins` n2) d w of
   (False,w') -> ("You can't link those rooms!",w')
   (True,w')  -> (n1 ++ " now adjoins " ++ n2,w')
 link _ _ w = huh w
 
 describe :: Command String
-describe n [o,d] w = case (d `describes` o) w of
+describe _ [o,d] w = case (d `describes` o) w of
   (False,w') -> huh w'
   (True,w')  -> ("Ok.",w')
 describe _ _ w = huh w
@@ -97,6 +97,7 @@ examine _ _ w = huh w
 locOf :: Name -> World -> Node
 locOf n w = let n' = w M.! n in  w M.! (fromJust $ location n')
 
+desc :: Node -> [Name] -> String
 desc n xs = let cs = S.toList $ contents n S.\\ S.fromList xs
   in intercalate "\n" $
     [ name n

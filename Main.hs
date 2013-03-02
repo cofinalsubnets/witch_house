@@ -16,7 +16,6 @@ import System.IO.Unsafe (unsafePerformIO)
 import System.Locale (defaultTimeLocale)
 
 import qualified Data.Map as M
-import qualified Data.Set as S
 
 import Gretel.Command
 import Gretel.World
@@ -35,12 +34,13 @@ main :: IO ()
 main = do
   opts <- getArgs >>= parseArgs
   chan <- atomically $ newTQueue
-  forkIO $ listen opts chan
+  _ <- forkIO $ listen opts chan
   respond (world opts) chan
 
 
 -- | Parse command line arguments.
 -- TODO: Add usage. Possibly lift the Options transformers into IO.
+parseArgs :: [String] -> IO Options
 parseArgs args = do
   case getOpt Permute options args of
     (o,[],[]) -> return $ foldr ($) defaults o
@@ -76,9 +76,9 @@ listen opts chan = do
   sock <- listenOn . PortNumber $ p
   putStrLn . startMsg $ show p
   forever $ do
-    (h,hn,p) <- accept sock
-    when (logging opts) $ logT $ "connected: " ++ hn ++ ":" ++ show p
-    forkIO $ login h hn p
+    (h,hn,p') <- accept sock
+    when (logging opts) $ logT $ "connected: " ++ hn ++ ":" ++ show p'
+    forkIO $ login h hn p'
 
   where
 
@@ -136,6 +136,7 @@ data Options = Options { portNo     :: !Int
                        , logging    :: Bool
                        }
 
+defaults :: Options
 defaults = Options { portNo = 10101
                    , maxClients = 10
                    , world = testWorld
@@ -152,6 +153,7 @@ data Req = Act { conn :: Conn
                } |
            Login String Handle deriving (Show)
 
+version :: String
 version = "v0.0.0a"
 
 -- | This exists because the lack of a Read instance for PortNumber or an
@@ -165,6 +167,7 @@ version = "v0.0.0a"
 portZero :: PortNumber
 portZero = 0
 
+startMsg :: String -> String
 startMsg p = concat $
   [ "Gretel " 
   , version 
@@ -177,6 +180,7 @@ startMsg p = concat $
 -- | Log a message to the console with a timestamp.
 -- TODO: Greater configurability. Maybe a command line option for the format
 -- string.
+logT :: String -> IO ()
 logT s = do
   time <- getCurrentTime
   host <- getHostName

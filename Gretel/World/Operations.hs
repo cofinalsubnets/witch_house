@@ -16,8 +16,6 @@ module Gretel.World.Operations
 ) where
 
 import Data.Maybe
-import Data.Set (Set)
-import Data.Map (Map)
 import qualified Data.Set as S
 import qualified Data.Map as M
 import Gretel.World.Node
@@ -29,6 +27,7 @@ type Predicate2 = Name -> Name -> World -> Bool
 from :: Direction -> Node -> Maybe Name
 dir `from` node = M.lookup dir $ edges node
 
+find2 :: Name -> Name -> World -> Maybe (Node,Node)
 find2 n1 n2 w = do n1' <- M.lookup n1 w 
                    n2' <- M.lookup n2 w
                    return (n1',n2')
@@ -42,14 +41,14 @@ n1 `has` n2 = \w ->
 
 -- | Attempt to move a node to a node adjacent to its container.
 goes :: NodeOp2
-n `goes` dir = \w ->
-  let node = M.lookup n w
+nm `goes` dir = \w ->
+  let node = M.lookup nm w
       loc  = do n <- node
                 l <- location n
-                loc <- M.lookup l w
-                dir `from` loc
+                loc' <- M.lookup l w
+                dir `from` loc'
   in case loc of Nothing -> (False,w)
-                 Just l  -> n `goesTo` l $ w
+                 Just l  -> nm `goesTo` l $ w
 
 -- | Insert a node into another node.
 takes :: NodeOp2
@@ -67,7 +66,7 @@ adjoins :: Name -> Name -> Direction -> WorldTransformer Bool
 n1 `adjoins` n2 = \d w ->
   case find2 n1 n2 w of
     Nothing -> (False,w)
-    Just (n1',n2') ->
+    Just (n1',_) ->
       let n1'' = n1' { edges = M.insert d n2 (edges n1') }
       in (True, M.insert n1 n1'' w)
 
