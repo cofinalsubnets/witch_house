@@ -1,6 +1,5 @@
 module Gretel.Server (startServer) where
 
-import Data.Maybe (isNothing, isJust)
 import Control.Concurrent.STM
 import Control.Monad
 import GHC.Conc (forkIO, getNumCapabilities)
@@ -17,108 +16,90 @@ import Gretel.Server.Console
 
 startServer :: Options -> IO ()
 startServer opts = do
-  chan <- atomically $ newTQueue
-  wrld <- atomically $ newTMVar (world opts)
-  lid <- forkIO $ listen opts chan
-  let responder = respond wrld chan
+  tmw <- atomically $ newTMVar (world opts)
   if not $ console opts
-    then responder
-    else do rid <- forkIO responder
-            startConsole opts wrld chan lid rid
+    then server opts tmw
+    else do _ <- forkIO $ server opts tmw
+            startConsole opts tmw
 
 -- | Accept connections on the designated port. For each connection,
 -- fork off a process to forward its requests to the queue.
-listen :: Options -> TQueue Req -> IO ()
-listen opts chan = do
+server :: Options -> TMVar World -> IO ()
+server opts tmw = do
+  sock <- listenOn $ PortNumber (fromIntegral . portNo $ opts)
+
+  let logMsg = logger (logHandle opts) "%H:%M:%S %z" (verbosity opts)
+  logMsg V1 $ "Gretel is listening on port " ++ show (portNo opts) ++ "."
   c <- getNumCapabilities
-  logMsg V2 $ "Using up to " ++ show c ++ " processor cores."
-  let p = (fromIntegral . portNo $ opts) :: PortNumber
-  sock <- listenOn $ PortNumber p
-  logMsg V1 $ "Gretel is ready & listening on port " ++ show p ++ "!"
+  logMsg V2 $ "Using up to " ++ show c ++ " cores."
+
   forever $ do
     (h,hn,p') <- accept sock
-    logMsg V1 $ concat $ ["Connected: ", hn, ":", show p']
-    forkIO $ login h hn p'
+    forkIO $ session h hn p' tmw logMsg
 
-  where
-    -- TODO: add command line options for logfile and format string
-    logMsg = logger (logHandle opts) "%H:%M:%S %z" (verbosity opts)
+type Logger = Verbosity -> String -> IO ()
 
-    login h hn p = do
-      hPutStr h "What's yr name?? "
-      n <- hGetLine h
-      atomically $ writeTQueue chan (Login n h)
-      serve h n hn p
+session :: Handle -> HostName -> PortNumber -> TMVar World -> Logger -> IO ()
+session h hn p tmw logM = do
+  logM V1 $ concat $ ["Connected: ", hn, ":", show p]
+  res <- login h tmw
 
-    serve h n hn p = do
-      open <- hIsOpen h
-      if open
-        then do
-          msg <- hGetLine h
-          case msg of
-            "quit" -> do hPutStrLn h "Bye!"
-                         hClose h
-                         atomically $ writeTQueue chan (Logout n)
-            "" -> serve h n hn p
-            _ -> do let r = Action msg n
-                    -- It's possible that the handle has been closed by
-                    -- another process, e.g., the responder after a failed
-                    -- login, so we need to check again. This is obviously 
-                    -- suboptimal. We should implement some way of notifying
-                    -- per-client servers of these events.
-                    op <- hIsOpen h
-                    when op $ atomically (writeTQueue chan r)
-          serve h n hn p
-        else logMsg V1 $ concat ["Disconnected: ", hn, ":", show p]
+  case res of
+    Left n -> do
+      logM V2 $ hn ++ ":" ++ show p ++ " attempted to log in as " ++ n
+    Right n -> do
+      logM V2 $ hn ++ ":" ++ show p ++ " logged in as " ++ n
+      serve h n tmw
+
+  logM V1 $ concat ["Disconnected: ", hn, ":", show p]
 
 
--- | Pull requests off of the queue, parse them into commands, update the world
--- as necessary, and send appropriate responses back to clients.
-respond :: TMVar World -> TQueue Req -> IO ()
-respond tmw q = do
-  req <- atomically $ readTQueue q
+login :: Handle -> TMVar World -> IO (Either String String)
+login h tmw = do
+  hPutStr h "What's yr name?? "
+  n <- hGetLine h
+  let greeting = hPutStrLn h $ "Hiya " ++ n ++ "!"
   w <- atomically $ takeTMVar tmw
-  case req of
+  case M.lookup n w of
+    Nothing -> do greeting
+                  let node = mkNode { name = n, location = Just $ name . root $ w, handle = Just h }
+                      w'   = addNode node w
+                  atomically $ putTMVar tmw w'
+                  return $ Right n
 
-    Action txt n -> do
-      let txt' = unwords [quote n,txt]
-          cmd  = parseCommand rootMap txt'
-          -- TODO: _correctly_ quote the name.
-          quote s = "\"" ++ s ++ "\""
-          (ns,w') = cmd w
-      mapM_ (notify w') ns
-      atomically $ putTMVar tmw w'
-      respond tmw q
+    Just n' -> case handle n' of
+      Nothing -> do greeting
+                    let w' = setHandle n (Just h) w
+                    atomically $ putTMVar tmw w'
+                    return $ Right n
+      Just _ -> do atomically $ putTMVar tmw w
+                   hPutStrLn h $ "Someone is already logged in as " ++ n ++". Please try again with a different handle."
+                   hClose h
+                   return (Left n)
 
-    -- this is sort of gross atm.
-    Login n h -> do
-      let greeting = (hPutStrLn h $ "Hiya " ++ n ++ "!")
-      if not $ M.member n w
-        then let node = mkNode { name = n, location = Just $ name . root $ w, handle = Just h }
-                 w'   = addNode node w
-             in do greeting
-                   atomically $ putTMVar tmw w'
-                   respond tmw q
-        else if isJust . handle $ w M.! n
-               then do hPutStrLn h $ "Someone is already logged in as " ++ n ++". Please try again with a different handle."
-                       hClose h
-                       atomically $ putTMVar tmw w
-                       respond tmw q
-               else if isNothing . location $ w M.! n 
-                      -- TODO: Something better than this.
-                      then do hPutStrLn h $ "That would crash the server. Please don't be discourteous."
-                              hClose h
-                              atomically $ putTMVar tmw w
-                              respond tmw q
-                      else do
-                        let w' = setHandle n (Just h) w
-                        greeting
-                        atomically $ putTMVar tmw w'
-                        respond tmw q
-    Logout n -> do
-      let w' = setHandle n Nothing w
-      atomically $ putTMVar tmw w'
-      respond tmw q
+serve :: Handle -> String -> TMVar World -> IO ()
+serve h n tmw = do
+  msg <- hGetLine h
+  case msg of
+
+    "quit" -> do hPutStrLn h "Bye!"
+                 hClose h
+                 w <- atomically $ takeTMVar tmw
+                 let w' = setHandle n Nothing w
+                 atomically $ putTMVar tmw w'
+
+    "" -> serve h n tmw
+
+    _ -> do w <- atomically $ takeTMVar tmw
+            let txt = unwords [quote n,msg]
+                cmd  = parseCommand rootMap txt
+                -- TODO: _correctly_ quote the name.
+                quote s = "\"" ++ s ++ "\""
+                (ns,w') = cmd w
+            mapM_ (notify w') ns
+            atomically $ putTMVar tmw w'
+            serve h n tmw
+                        
 
 notify :: World -> Notification -> IO ()
 notify w (Notify n msg) = when (not $ null msg) $ do

@@ -22,6 +22,7 @@ import qualified Data.Set as S
 import qualified Data.Map as M
 import Gretel.World.Node
 import Gretel.World.Types
+import Control.Monad (when)
 
 type NodeOp2 = Name -> Name -> WorldTransformer Bool
 type Predicate2 = Name -> Name -> World -> Bool
@@ -109,13 +110,13 @@ n1 `drops` n2 = n2 `leaves` n1
 -- will not return an updated state unless all the updates are successfull.
 goesTo :: NodeOp2
 n1 `goesTo` n2 = \w ->
-  let upd = do (n1',n2') <- find2 n1 n2 w
+  let upd = do when (n1==n2) Nothing
+               (n1',_) <- find2 n1 n2 w
                l1  <- location n1'
                l1' <- M.lookup l1 w
                let n1'' = n1' { location = Just n2 }
-                   n2'' = n2' { contents = S.insert n1 (contents n2') }
                    l1'' = l1' { contents = S.delete n1 (contents l1') }
-               return $ addNode l1'' $ addNode n2'' $ addNode n1'' w
+               return $ addNode n1'' . addNode l1'' $ w
   in case upd of Nothing -> (False,w)
                  Just w' -> (True,w')
 
@@ -133,7 +134,6 @@ n1 `makes` n2 = \w ->
 addNode :: Node -> World -> World
 addNode n w = let w' = (name >>= M.insert $ n) w
   in case location n of Nothing -> w'
-                        Just l  -> case M.lookup l w' of
-                                     Nothing -> w'
-                                     Just ln -> M.insert l (ln { contents = S.insert (name n) (contents ln) }) w'
+                        Just l  -> let ln = w' M.! l
+                          in M.insert l (ln { contents = S.insert (name n) (contents ln) }) w'
 

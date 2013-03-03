@@ -43,21 +43,22 @@ notifyAllBut n r msg = map (\p -> Notify p msg) . filter (n/=) . S.toList $ cont
 help :: Command
 help n _ w = (notify1 n helpMsg,w)
   where
-    helpMsg = unlines $
-      [ "A superset of these commands are available:"
-      , "  go <direction>"
-      , "  take <object>"
-      , "  look [direction]"
-      , "  make <object>"
-      , "  drop <object>"
-      , "  link <origin> <destination> <direction>"
-      , "  unlink <origin> <direction>"
-      , "  enter <object>"
-      , "  describe <object>"
-      , "  examine <object>"
+    helpMsg = unlines $ [
+        "A superset of these commands is available:"
+      , "  look     [direction]"
       , "  exits"
-      , "  say [message]"
-      , "  /me [whatever it is that you do]"
+      , "  go       <direction>"
+      , "  take     <object>"
+      , "  drop     <object>"
+      , "  enter    <object>"
+      , "  exit"
+      , "  examine  <object>"
+      , "  make     <object>"
+      , "  link     <origin> <destination> <direction>"
+      , "  unlink   <origin> <direction>"
+      , "  describe <object>"
+      , "  say      [message]"
+      , "  /me      [whatever it is that you do]"
       , "  help"
       ]
 
@@ -66,7 +67,7 @@ huh :: Name -> WorldTransformer [Notification]
 huh n = (notify1 n "Huh?",)
 
 say :: Command
-say n s w = let msg = n ++ ": " ++ unwords s
+say n s w = let msg = n ++ "says, \"" ++ unwords s ++ "\""
   in (notifyAll (locOf n w) msg,w)
 
 me :: Command
@@ -84,10 +85,11 @@ exits n _ w = huh n w
 go :: Command
 go n [dir] w = case n `goes` dir $ w of
   (False,w') -> (notify1 n "You can't go that way!",w')
-  (True, w') -> ( notify1 n (desc (locOf n w) [n]) ++ 
+  (True, w') -> ( notify1 n (desc (locOf n w') [n]) ++ 
                   notifyAllBut n (locOf n w') (n++" arrives from "++ name (locOf n w) ++ ".") ++ 
-                  notifyAll (locOf n w) (n++" goes "++dir++".")
+                  notifyAllBut n (locOf n w) (n++" goes "++dir++".")
                 , w')
+
 go n [] w = (notify1 n "Go where?",w)
 go n _ w = huh n w
 
@@ -103,7 +105,7 @@ take n [t] w = case n `takes` t $ w of
                 , w')
   (True, w') -> ((Notify n $ "You now have a " ++ t ++ "."):(notifyAllBut n (locOf n w') $ n ++ " picks up " ++ t)
                 , w')
-take n [] w = ([Notify n $ "Take what?"],w)
+take n [] w = (notify1 n $ "Take what?",w)
 take n _ w = huh n w
 
 exit :: Command
@@ -111,8 +113,8 @@ exit n [] w = case n `leaves` (name orig) $ w of
   (False,w') -> (notify1 n $ "You can't exit your current location.",w')
   (True,w')  -> let dest = locOf n w'
                 in ( notify1 n (desc dest [n]) ++
-                     notifyAllBut n dest (n++" arrives from "++name orig) ++
-                     notifyAll orig (n++" exits to "++name dest)
+                     notifyAllBut n dest (n++" arrives from "++name orig++".") ++
+                     notifyAllBut n orig (n++" exits to "++name dest++".")
                    , w')
   where orig = locOf n w
                  
@@ -144,8 +146,8 @@ enter n [o] w = case n `enters` o $ w of
   (True,w')  -> let ol = locOf n w
                     nl = locOf n w'
     in ( notify1 n (desc nl [n]) ++
-         notifyAllBut n nl (n++" enters from "++name ol) ++
-         notifyAllBut n ol (n++" enters "++o)
+         notifyAllBut n nl (n++" enters from "++name ol++".") ++
+         notifyAllBut n ol (n++" enters "++o++".")
        , w')
 enter n [] w = (notify1 n "Enter where?",w)
 enter n _ w = huh n w
