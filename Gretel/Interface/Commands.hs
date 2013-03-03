@@ -26,8 +26,9 @@ rootMap = M.fromList $
   , ("describe", describe)
   , ("examine", examine)
   , ("exits", exits)
-  , ("/say", say)
+  , ("say", say)
   , ("/me", me)
+  , ("help", help)
   ]
 
 notifyAll :: Node -> String -> [Notification]
@@ -38,6 +39,28 @@ notify1 n m = [Notify n m]
 
 notifyAllBut :: String -> Node -> String -> [Notification]
 notifyAllBut n r msg = map (\p -> Notify p msg) . filter (n/=) . S.toList $ contents r
+
+help :: Command
+help n _ w = (notify1 n helpMsg,w)
+  where
+    helpMsg = unlines $
+      [ "A superset of these commands are available:"
+      , "  go <direction>"
+      , "  take <object>"
+      , "  look [direction]"
+      , "  make <object>"
+      , "  drop <object>"
+      , "  link <origin> <destination> <direction>"
+      , "  unlink <origin> <direction>"
+      , "  enter <object>"
+      , "  describe <object>"
+      , "  examine <object>"
+      , "  exits"
+      , "  say [message]"
+      , "  /me [whatever it is that you do]"
+      , "  help"
+      ]
+
 
 huh :: Name -> WorldTransformer [Notification]
 huh n = (notify1 n "Huh?",)

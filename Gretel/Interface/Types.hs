@@ -6,7 +6,6 @@ module Gretel.Interface.Types
 
 import Gretel.World (Name, WorldTransformer)
 import Data.Map (Map)
-import Gretel.Interface.Response
 
 type Command = Name -> [String] -> WorldTransformer [Notification]
 type CommandMap = Map String Command
