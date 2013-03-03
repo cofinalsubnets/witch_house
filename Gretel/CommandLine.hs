@@ -9,7 +9,6 @@ import GHC.Conc (getNumCapabilities, setNumCapabilities)
 
 import Gretel.Server.Types
 import Gretel.Server.Defaults
-import Gretel.World
 import Gretel.Version
 import System.IO
 
@@ -41,9 +40,6 @@ handleArgs args = do
                   , Option "V" ["verbosity"]
                     (ReqArg setVerbosity "N")
                       "verbosity of log messages"
-                  , Option [] ["load-file"]
-                    (ReqArg readWorld "FILE")
-                      "read initial state from a file"
                   , Option [] ["console"]
                     (NoArg setConsole)
                       "enable console after startup"
@@ -87,13 +83,4 @@ handleArgs args = do
         usage = do
           let header = "Usage: gretel [OPTIONS...]"
           putStrLn $ usageInfo header options
-
-        -- TODO: Add sanity checks.
-        readWorld f o = do
-          opt <- o
-          txt <- readFile f
-          putStr $ "# Reading initial state from " ++ f ++ "..."
-          let !w = read txt :: World
-          putStrLn " done!"
-          return $ opt { world = w }
 

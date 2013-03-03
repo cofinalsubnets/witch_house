@@ -13,5 +13,6 @@ mkNode = Node { location    = Nothing
               , name        = ""
               , description = ""
               , properties  = S.fromList []
+              , handle      = Nothing
               }
 

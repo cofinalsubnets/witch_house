@@ -7,7 +7,6 @@ module Gretel.Interface.Commands
 import Prelude hiding (take, drop)
 import Gretel.World
 import Gretel.Interface.Types
-import Gretel.Interface.Response
 import Data.Maybe
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -31,111 +30,131 @@ rootMap = M.fromList $
   , ("/me", me)
   ]
 
-huh :: WorldTransformer Response
-huh = (self "Huh?",)
+notifyAll :: Node -> String -> [Notification]
+notifyAll r msg = map (\n -> Notify n msg) . S.toList $ contents r
+
+notify1 :: String -> String -> [Notification]
+notify1 n m = [Notify n m]
+
+notifyAllBut :: String -> Node -> String -> [Notification]
+notifyAllBut n r msg = map (\p -> Notify p msg) . filter (n/=) . S.toList $ contents r
+
+huh :: Name -> WorldTransformer [Notification]
+huh n = (notify1 n "Huh?",)
 
 say :: Command
 say n s w = let msg = n ++ ": " ++ unwords s
-  in (local msg msg,w)
+  in (notifyAll (locOf n w) msg,w)
 
 me :: Command
 me n s w = let msg = n ++ " " ++ unwords s
-  in (local msg msg,w)
+  in (notifyAll (locOf n w) msg,w)
 
 
 exits :: Command
 exits n [] w = let es = M.keys . edges $ locOf n w
                    ms = "The following exits are available:":es
                    msg = intercalate "\n" ms
-  in (self msg,w)
-exits _ _ w = huh w
+  in (notify1 n msg,w)
+exits n _ w = huh n w
 
 go :: Command
 go n [dir] w = case n `goes` dir $ w of
-  (False,w') -> (self "You can't go that way!",w')
-  (True, w') -> (local (desc (locOf n w) [n]) (n++" arrives.")
+  (False,w') -> (notify1 n "You can't go that way!",w')
+  (True, w') -> ( notify1 n (desc (locOf n w) [n]) ++ 
+                  notifyAllBut n (locOf n w') (n++" arrives from "++ name (locOf n w) ++ ".") ++ 
+                  notifyAll (locOf n w) (n++" goes "++dir++".")
                 , w')
-go _ [] w = (self "Go where?",w)
-go _ _ w = huh w
+go n [] w = (notify1 n "Go where?",w)
+go n _ w = huh n w
 
 unlink :: Command
 unlink _ [n,dir] w = case n `deadends` dir $ w of
-  (False,w') -> huh w'
-  (True,w')  -> (self "",w')
-unlink _ _ w = huh w
+  (False,w') -> huh n w'
+  (True,w')  -> ([Notify n ""],w')
+unlink n _ w = huh n w
 
 take :: Command
 take n [t] w = case n `takes` t $ w of
-  (False,w') -> (self $ "There's no " ++ t ++ " here."
+  (False,w') -> (notify1 n $ "There's no " ++ t ++ " here."
                 , w')
-  (True, w') -> (local ("You now have a " ++ t ++ ".") (n ++ " picks up " ++ t)
+  (True, w') -> ((Notify n $ "You now have a " ++ t ++ "."):(notifyAllBut n (locOf n w') $ n ++ " picks up " ++ t)
                 , w')
-take _ [] w = (self "Take what?",w)
-take _ _ w = huh w
+take n [] w = ([Notify n $ "Take what?"],w)
+take n _ w = huh n w
 
 exit :: Command
-exit n [] w = case n `leaves` (name $ locOf n w) $ w of
-  (False,w') -> (self "You can't exit your current location.",w')
-  (True,w')  -> look n [] w'
-exit _ _ w = huh w
+exit n [] w = case n `leaves` (name orig) $ w of
+  (False,w') -> (notify1 n $ "You can't exit your current location.",w')
+  (True,w')  -> let dest = locOf n w'
+                in ( notify1 n (desc dest [n]) ++
+                     notifyAllBut n dest (n++" arrives from "++name orig) ++
+                     notifyAll orig (n++" exits to "++name dest)
+                   , w')
+  where orig = locOf n w
+                 
+exit n _ w = huh n w
 
 look :: Command
-look n [] w = (self $ desc (locOf n w) [n],w)
+look n [] w = (notify1 n $ desc (locOf n w) [n],w)
 look n [dir] w = let loc = locOf n w
                      txt = do d <- dir `from` loc
                               dest <- M.lookup d w
                               return $ desc dest []
   in case txt of
-    Nothing -> (self "You don't see anything in that direction."
+    Nothing -> (notify1 n "You don't see anything in that direction."
                , w)
-    Just d  -> (self d, w)
-look _ _ w  = huh w
+    Just d  -> (notify1 n d, w)
+look n _ w  = huh n w
 
 make :: Command
 make n [o] w = case n `makes` o $ w of
-  (False,w')  -> (self $ o ++ " already exists!", w')
-  (True,w') -> (local ("You've created " ++ o ++ ".") (n++" creates "++o++".")
+  (False,w')  -> (notify1 n $ o ++ " already exists!", w')
+  (True,w') -> ((Notify n $ "You've created " ++ o ++ "."):(notifyAllBut n (locOf n w) $ n++" creates "++o++".")
                , w')
-make _ _ w = huh w
+make n _ w = huh n w
 
 enter :: Command
 enter n [o] w = case n `enters` o $ w of
-  (False,w') -> (self $ "You can't enter "++o++"."
+  (False,w') -> (notify1 n $ "You can't enter "++o++"."
                 , w')
   (True,w')  -> let ol = locOf n w
                     nl = locOf n w'
-    in (local (desc nl [n]) (n++" enters from "++name ol)
-                , w')
-enter _ [] w = (self "Enter where?",w)
-enter _ _ w = huh w
+    in ( notify1 n (desc nl [n]) ++
+         notifyAllBut n nl (n++" enters from "++name ol) ++
+         notifyAllBut n ol (n++" enters "++o)
+       , w')
+enter n [] w = (notify1 n "Enter where?",w)
+enter n _ w = huh n w
 
 drop :: Command
 drop n [o] w = case n `drops` o $ w of
-  (False,w') -> (self "You can't drop what you don't have!",w')
-  (True,w')  -> (local ("You drop " ++ o ++ ".") (n++" drops "++o++".")
+  (False,w') -> (notify1 n "You can't drop what you don't have!",w')
+  (True,w')  -> ( notify1 n ("You drop " ++ o ++ ".") ++
+                  notifyAllBut n (locOf n w') (n++" drops "++o++".")
                 , w')
-drop _ _ w = huh w
+drop n _ w = huh n w
 
 link :: Command
-link _ [n1,n2,d] w = case (n1 `adjoins` n2) d w of
-  (False,w') -> (self "You can't link those rooms!",w')
-  (True,w')  -> (self "",w')
-link _ _ w = huh w
+link n [n1,n2,d] w = case (n1 `adjoins` n2) d w of
+  (False,w') -> (notify1 n "You can't link those rooms!",w')
+  (True,w')  -> ([],w')
+link n _ w = huh n w
 
 describe :: Command
-describe _ [o,d] w = case (d `describes` o) w of
-  (False,w') -> huh w'
-  (True,w')  -> (self "",w')
-describe _ _ w = huh w
+describe n [o,d] w = case (d `describes` o) w of
+  (False,w') -> huh n w'
+  (True,w')  -> ([],w')
+describe n _ w = huh n w
 
 examine :: Command
 examine n [t] w = case find2 n t w of
-  Nothing -> huh w
+  Nothing -> huh n w
   Just (n1,n2) -> if location n1 == location n2
-                  then (self $ desc n2 [],w)
-                  else (self $ "You see no "++t++" here.",w)
-examine _ [] w = (self "Examine what?",w)
-examine _ _ w = huh w
+                  then (notify1 n $ desc n2 [],w)
+                  else (notify1 n $ "You see no "++t++" here.",w)
+examine n [] w = (notify1 n "Examine what?",w)
+examine n _ w = huh n w
 
 -- helper fns
 

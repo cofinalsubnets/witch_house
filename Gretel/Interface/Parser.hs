@@ -5,26 +5,28 @@ module Gretel.Interface.Parser
 
 import Gretel.World (WorldTransformer)
 import Gretel.Interface.Types
-import Gretel.Interface.Response
 import Data.Char
 import Data.List (isPrefixOf)
 import qualified Data.Map as M
 
+notify1 :: String -> String -> [Notification]
+notify1 a b = [Notify a b]
+
 -- | Given a command map and a raw input string, returns a
 -- world transformer.
-parseCommand :: CommandMap -> String -> WorldTransformer Response
+parseCommand :: CommandMap -> String -> WorldTransformer [Notification]
 parseCommand cm s = case tokenize s of
   Just (n:c:args) -> mLookup c cm n args
-  _ -> (self "Huh?",)
+  _ -> (notify1 (head $ words s) "Huh?",)
 
 
 mLookup :: String -> CommandMap -> Command
-mLookup k cm = case M.lookup k cm of
-  Just c -> c
+mLookup k cm n = case M.lookup k cm of
+  Just c -> c n
   Nothing -> case filter (isPrefixOf k) (M.keys cm) of
-    [m] -> cm M.! m
-    [] -> \_ _ -> (self $ "I don't know what `"++k++"' means.",)
-    ms -> \_ _ -> (self $ "You could mean: " ++ show ms,)
+    [m] -> cm M.! m $ n
+    [] -> \_ -> (notify1 n $ "I don't know what `"++k++"' means.",)
+    ms -> \_ -> (notify1 n $ "You could mean: " ++ show ms,)
   
 
 -- | TODO: Write tests for this. Make it generally suck less.
