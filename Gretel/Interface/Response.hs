@@ -1,4 +1,4 @@
-module Gretel.Command.Response
+module Gretel.Interface.Response
 ( Response(..)
 , Scope(..)
 , self

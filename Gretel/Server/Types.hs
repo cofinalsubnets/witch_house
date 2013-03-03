@@ -24,16 +24,18 @@ data Req = Action { body   :: String
                   } |
            Login { body    :: String
                  , lHandle :: Handle
-                 } deriving (Show)
+                 } |
+           Logout String deriving (Show)
 
 type ClientMap = Map String Handle
 
 data Verbosity = V0 | V1 | V2 deriving (Show, Eq, Enum, Ord)
 
-data Options = Options { portNo     :: !Int
+data Options = Options { portNo     :: Int
                        , maxClients :: Int              -- not implemented
-                       , world      :: !World
-                       , dataDir    :: (Maybe FilePath) -- also not implemented
-                       , verbosity  :: !Verbosity
+                       , world      :: World
+                       , logHandle  :: Handle
+                       , verbosity  :: Verbosity
+                       , console    :: Bool
                        }
 

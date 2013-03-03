@@ -1,47 +1,51 @@
-module Gretel.Server
-( startServer
-, defaults
-, Options(..)   --
-, Verbosity(..) -- To permit command line parsing.
-, World         --
-) where
+module Gretel.Server (startServer) where
 
 import Data.Maybe (isNothing, catMaybes, fromJust)
-import Data.Time
 import Data.List (delete)
 import Control.Concurrent.STM
 import Control.Monad
-import GHC.Conc (forkIO)
+import GHC.Conc (forkIO, getNumCapabilities)
 import Network
 import System.IO
-import System.Locale (defaultTimeLocale)
 
 import qualified Data.Map as M
 import qualified Data.Set as S
 
-import Gretel.Server.Types
 import Gretel.World
-import Gretel.Command
+import Gretel.Interface
+import Gretel.Server.Types
+import Gretel.Server.Log
+import Gretel.Server.Console
 
 startServer :: Options -> IO ()
 startServer opts = do
   chan <- atomically $ newTQueue
-  _ <- forkIO $ listen opts chan
-  respond (world opts) (M.fromList []) chan
+  wrld <- atomically $ newTMVar (world opts)
+  clis <- atomically $ newTMVar (M.fromList [])
+  lid <- forkIO $ listen opts chan
+  let responder = respond wrld clis chan
+  if not $ console opts
+    then responder
+    else do rid <- forkIO responder
+            startConsole opts wrld clis chan lid rid
 
 -- | Accept connections on the designated port. For each connection,
 -- fork off a process to forward its requests to the queue.
 listen :: Options -> TQueue Req -> IO ()
 listen opts chan = do
-  let p = portZero + (fromIntegral . portNo $ opts) -- ugghhh
-  sock <- listenOn . PortNumber $ p
-  logT opts V1 $ "Listening on port " ++ show p ++ "."
+  c <- getNumCapabilities
+  logMsg V2 $ "Using up to " ++ show c ++ " processor cores."
+  let p = (fromIntegral . portNo $ opts) :: PortNumber
+  sock <- listenOn $ PortNumber p
+  logMsg V1 $ "Gretel is ready & listening on port " ++ show p ++ "!"
   forever $ do
     (h,hn,p') <- accept sock
-    logT opts V1 $ "Connected: " ++ hn ++ ":" ++ show p'
+    logMsg V1 $ concat $ ["Connected: ", hn, ":", show p']
     forkIO $ login h hn p'
 
   where
+    -- TODO: add command line options for logfile and format string
+    logMsg = logger (logHandle opts) "%H:%M:%S %z" (verbosity opts)
 
     login h hn p = do
       hPutStr h "What's yr name?? "
@@ -54,11 +58,12 @@ listen opts chan = do
       if open
         then do
           msg <- hGetLine h
-          if msg == "quit"
-            then do hPutStrLn h "Bye!"
-                    hFlush h
-                    hClose h
-            else do let c = Client h n
+          case msg of
+            "quit" -> do hPutStrLn h "Bye!"
+                         hClose h
+                         atomically $ writeTQueue chan (Logout n)
+            "" -> serve h n hn p
+            _ -> do let c = Client h n
                         r = Action msg c
                     -- It's possible that the handle has been closed by
                     -- another process, e.g., the responder after a failed
@@ -68,14 +73,15 @@ listen opts chan = do
                     op <- hIsOpen h
                     when op $ atomically (writeTQueue chan r)
           serve h n hn p
-        else logT opts V1 $ "disconnected: " ++ hn ++ ":" ++ show p
+        else logMsg V1 $ concat ["Disconnected: ", hn, ":", show p]
 
 
 -- | Pull requests off of the queue, parse them into commands, update the world
 -- as necessary, and send appropriate responses back to clients.
-respond :: World -> ClientMap -> TQueue Req -> IO ()
-respond w cm q = do
+respond :: TMVar World -> TMVar ClientMap -> TQueue Req -> IO ()
+respond tmw tmc q = do
   req <- atomically $ readTQueue q
+  w <- atomically $ takeTMVar tmw
   case req of
 
     Action txt (Client h n) -> do
@@ -87,76 +93,59 @@ respond w cm q = do
       case scp of
         Self -> notify [h] sm
         Local -> do notify [h] sm
-                    let others = delete h $ handles . neighbours $ n
+                    cm <- atomically $ readTMVar tmc
+                    let others = delete h . handles cm $ neighbours n w'
                     notify others om
         _ -> return ()
-      respond w' cm q
+      atomically $ putTMVar tmw w'
+      respond tmw tmc q
 
     -- this is sort of gross atm.
     Login n h -> do
+      cm <- atomically $ takeTMVar tmc
       let greeting = (hPutStrLn h $ "Hiya " ++ n ++ "!")
       if not $ M.member n w
         then let node = mkNode { name = n, location = Just $ name . root $ w }
                  w'   = addNode node w
                  cm'  = M.insert n h cm
-             in greeting >> respond w' cm' q
+             in do greeting
+                   atomically $ putTMVar tmw w'
+                   atomically $ putTMVar tmc cm'
+                   respond tmw tmc q
         else if n `M.member` cm
                then do hPutStrLn h $ "Someone is already logged in as " ++ n ++". Please try again with a different handle."
-                       hFlush h
                        hClose h
-                       respond w cm q
+                       atomically $ putTMVar tmw w
+                       atomically $ putTMVar tmc cm
+                       respond tmw tmc q
                else if isNothing . location $ w M.! n 
                       -- TODO: Something better than this.
                       then do hPutStrLn h $ "That would crash the server. Please don't be discourteous."
-                              hFlush h
                               hClose h
-                              respond w cm q
-                      else let cm' = M.insert n h cm in greeting >> respond w cm' q
+                              atomically $ putTMVar tmw w
+                              atomically $ putTMVar tmc cm
+                              respond tmw tmc q
+                      else do
+                        let cm' = M.insert n h cm 
+                        greeting
+                        atomically $ putTMVar tmw w
+                        atomically $ putTMVar tmc cm'
+                        respond tmw tmc q
+    Logout n -> do
+      cm <- atomically $ takeTMVar tmc
+      let cm' = M.delete n cm
+      atomically $ putTMVar tmc cm'
+      atomically $ putTMVar tmw w
+      respond tmw tmc q
   where
 
     notify hs msg = when (not $ null msg) $ mapM_ (\h -> hPutStrLn h msg >> hFlush h) hs
 
 --    nodes = M.elems w
 
-    locOf n = w M.! (fromJust . location $ w M.! n)
+    locOf n w = w M.! (fromJust . location $ w M.! n)
 
-    neighbours = S.toList . contents . locOf
+    neighbours n w = S.toList $ contents $ locOf n w
 
-    handles = catMaybes . map (flip M.lookup $ cm)
-
-
--- | Log a message to the console with a timestamp.
--- TODO: More configurability. Maybe a command line option for the time format
--- string.
-logT :: Options -> Verbosity -> String -> IO ()
-logT opts v s = when (verbosity opts >= v) $ do
-  time <- getCurrentTime
-  let loc = defaultTimeLocale
-      fmt = "%d/%m %X"
-  putStrLn $ unwords [(formatTime loc fmt time), "|", s]
-
-defaults :: Options
-defaults = Options { portNo = 10101
-                   , maxClients = 10
-                   , world = defaultWorld
-                   , dataDir = Nothing
-                   , verbosity = V1
-                   }
-
-defaultWorld :: World
-defaultWorld = let r = mkNode { name = "Root of the World"
-                              , description = "\"For the leaves to touch the sky, the roots much reach deep into hell.\"\n  --Thomas Mann"
-                              }
-  in addNode r $ M.fromList []
-
--- | This exists because the lack of a Read instance for PortNumber or an
--- exported intToPortNumber function means that the only way I could find
--- to make a PortNumber out of a command line argument was to do arithmetic -
--- possible because (reasonably?) PortNumber _does_ have a Num instance.
---
--- Also, as well as being a type, PortNumber turns out to be a type constructor
--- for PortID, which takes a PortNumber argument. What I'm saying is, this API
--- is a little weird.
-portZero :: PortNumber
-portZero = 0
+    handles cm = catMaybes . map (flip M.lookup $ cm)
 

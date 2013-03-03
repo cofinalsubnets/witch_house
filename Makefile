@@ -2,7 +2,7 @@ BINNAME := gretel
 GHCFLAGS := -Wall -Werror -O2
 
 build:
-	ghc --make Main.hs -o ${BINNAME} ${GHCFLAGS}
+	ghc --make Main.hs -o ${BINNAME} ${GHCFLAGS} -threaded
 
 install: gretel
 	mv gretel ~/bin

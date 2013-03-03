@@ -1,4 +1,4 @@
-module Gretel.Command.Types
+module Gretel.Interface.Types
 ( Command
 , CommandMap
 , Response(..)
@@ -7,7 +7,7 @@ module Gretel.Command.Types
 
 import Gretel.World (Name, WorldTransformer)
 import Data.Map (Map)
-import Gretel.Command.Response
+import Gretel.Interface.Response
 
 type Command = Name -> [String] -> WorldTransformer Response
 type CommandMap = Map String Command

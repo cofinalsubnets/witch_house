@@ -1,11 +1,11 @@
 {-# LANGUAGE TupleSections #-}
-module Gretel.Command.Processor
+module Gretel.Interface.Parser
 ( parseCommand
 ) where
 
 import Gretel.World (WorldTransformer)
-import Gretel.Command.Types
-import Gretel.Command.Response
+import Gretel.Interface.Types
+import Gretel.Interface.Response
 import Data.Char
 import Data.List (isPrefixOf)
 import qualified Data.Map as M
@@ -49,7 +49,7 @@ tokenize s = sequence $ unquoted s []
       | isEscape c = escape (quoted q) cs a
       | otherwise = quoted q cs (c:a)
 
-    isQuote c = c `elem` "'\""
+    isQuote c = c `elem` "`'\""
     isEscape c = c == '\\'
     escape _ [] _ = [Nothing]
     escape mode (c:cs) acc = mode cs (c:acc)

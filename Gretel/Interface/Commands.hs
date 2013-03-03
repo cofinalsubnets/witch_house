@@ -1,13 +1,13 @@
 {-# LANGUAGE TupleSections #-}
-module Gretel.Command.Commands
+module Gretel.Interface.Commands
 ( rootMap
 , huh
 ) where
 
 import Prelude hiding (take, drop)
 import Gretel.World
-import Gretel.Command.Types
-import Gretel.Command.Response
+import Gretel.Interface.Types
+import Gretel.Interface.Response
 import Data.Maybe
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -27,10 +27,21 @@ rootMap = M.fromList $
   , ("describe", describe)
   , ("examine", examine)
   , ("exits", exits)
+  , ("/say", say)
+  , ("/me", me)
   ]
 
 huh :: WorldTransformer Response
 huh = (self "Huh?",)
+
+say :: Command
+say n s w = let msg = n ++ ": " ++ unwords s
+  in (local msg msg,w)
+
+me :: Command
+me n s w = let msg = n ++ " " ++ unwords s
+  in (local msg msg,w)
+
 
 exits :: Command
 exits n [] w = let es = M.keys . edges $ locOf n w
@@ -91,7 +102,9 @@ enter :: Command
 enter n [o] w = case n `enters` o $ w of
   (False,w') -> (self $ "You can't enter "++o++"."
                 , w')
-  (True,w')  -> (local (desc (locOf n w) [n]) (n++" enters from somewhere beyond...")
+  (True,w')  -> let ol = locOf n w
+                    nl = locOf n w'
+    in (local (desc nl [n]) (n++" enters from "++name ol)
                 , w')
 enter _ [] w = (self "Enter where?",w)
 enter _ _ w = huh w
