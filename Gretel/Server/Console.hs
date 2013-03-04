@@ -1,10 +1,11 @@
 module Gretel.Server.Console (startConsole) where
 
-import Control.Concurrent.STM
-import System.IO
+import Control.Concurrent.STM (atomically, TMVar, readTMVar)
+import System.IO (hPutStrLn, hFlush, stdout)
 import System.Exit (exitSuccess)
 import Gretel.Server.Types
 import Gretel.World
+import Data.Maybe (catMaybes, isJust)
 
 startConsole :: Options -> TMVar World -> IO ()
 startConsole opts tmw = do
@@ -17,15 +18,20 @@ startConsole opts tmw = do
                         writeFile file $ show w
                         putStrLn "done!"
 
-{-
-    ["clients"] -> do cm <- atomically $ readTMVar tmc
-                      let l = M.keys cm
-                      putStrLn $ show (length l) ++ " clients:"
-                      mapM_ putStrLn l
-                      -}
+    ["clients"] -> do let ks = getKeys w
+                          hs = filter (\k -> isJust $ getHandle k w) ks
+                      putStrLn $ show (length hs) ++ " clients:"
+                      mapM_ putStrLn ks
+    ("broadcast":ss) -> do let ks = getKeys w
+                               hs = catMaybes $ map (\k -> getHandle k w) ks
+                               msg = unwords ss
+                           mapM_ (\h -> hPutStrLn h msg) hs
 
-    ["shutdown"] -> exitSuccess
+    ["quit"] -> exitSuccess
+    ["exit"] -> exitSuccess
 
-    _ -> putStrLn "Unrecognized command."
+    [] -> return ()
+    (c:_) -> putStrLn $ "Unrecognized command: `" ++ c ++ "'"
+
   startConsole opts tmw
 

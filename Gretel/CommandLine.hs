@@ -2,7 +2,6 @@
 module Gretel.CommandLine (handleArgs) where
 
 import System.Console.GetOpt
-import Data.Version (showVersion)
 import System.Exit
 import Control.Monad (when)
 import GHC.Conc (getNumCapabilities, setNumCapabilities)

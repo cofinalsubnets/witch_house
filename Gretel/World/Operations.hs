@@ -10,6 +10,7 @@ module Gretel.World.Operations
 , enters
 , drops
 , leaves
+, getKeys
 , hasKey
 , exitsFor
 , from
@@ -24,6 +25,22 @@ module Gretel.World.Operations
 , unsetHandle
 , addKey
 , mkWorld
+, getName'
+, getDesc'
+, getExits'
+, exitsFor'
+, getHandle'
+, getLoc'
+, from'
+, contents'
+, setLoc'
+, setName'
+, setDesc'
+, setHandle'
+, unsetHandle'
+, addExit'
+, delExit'
+, addKey'
 ) where
 
 import Data.Maybe

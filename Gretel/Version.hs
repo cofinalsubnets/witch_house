@@ -1,4 +1,7 @@
-module Gretel.Version (version) where
+module Gretel.Version
+( version
+, showVersion
+) where
 
 import Data.Version
 
