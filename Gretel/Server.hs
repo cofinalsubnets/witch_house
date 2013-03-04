@@ -6,8 +6,6 @@ import GHC.Conc (forkIO, getNumCapabilities)
 import Network
 import System.IO
 
-import qualified Data.Map as M
-
 import Gretel.World
 import Gretel.Interface
 import Gretel.Server.Types
@@ -62,23 +60,20 @@ login h tmw = do
   n <- hGetLine h
   let greeting = hPutStrLn h $ "Hiya " ++ n ++ "!"
   w <- atomically $ takeTMVar tmw
-  case M.lookup n w of
+  case getHandle n w of
     Nothing -> do greeting
-                  -- TODO: set the initial location in a sane way.
-                  let ws = addKey' n >> setLoc' n "Root of the World" >> setHandle' n h
-                      w' = execWorld ws w
+                  let w' = if hasKey n w
+                             then execWorld (setHandle' n h) w
+                             -- TODO: set initial location in a sane way
+                             else let ws = addKey' n >> setLoc' n "Root of the World" >> setHandle' n h
+                                  in execWorld ws w
                   atomically $ putTMVar tmw w'
                   return $ Right n
 
-    Just n' -> case handle n' of
-      Nothing -> do greeting
-                    let w' = execWorld (setHandle' n h) w
-                    atomically $ putTMVar tmw w'
-                    return $ Right n
-      Just _ -> do atomically $ putTMVar tmw w
-                   hPutStrLn h $ "Someone is already logged in as " ++ n ++". Please try again with a different handle."
-                   hClose h
-                   return $ Left n
+    Just _ -> do atomically $ putTMVar tmw w
+                 hPutStrLn h $ "Someone is already logged in as " ++ n ++". Please try again with a different handle."
+                 hClose h
+                 return $ Left n
 
 serve :: Handle -> String -> TMVar World -> IO ()
 serve h n tmw = do
@@ -106,7 +101,7 @@ serve h n tmw = do
 
 notify :: World -> Notification -> IO ()
 notify w (Notify n msg) = when (not $ null msg) $ do
-  case M.lookup n w >>= handle of
+  case getHandle n w of
     Nothing -> return ()
     Just h -> hPutStrLn h msg
 
