@@ -52,16 +52,19 @@ help n _ w = (notify1 n helpMsg,w)
       , "  go       <direction>"
       , "  take     <object>"
       , "  drop     <object>"
+      , "  inventory"
       , "  enter    <object>"
       , "  exit"
       , "  examine  <object>"
       , "  make     <object>"
+      , "  kill     <object>"
       , "  link     <origin> <destination> <direction>"
       , "  unlink   <origin> <direction>"
       , "  describe <object>"
       , "  say      [message]"
       , "  /me      [whatever it is that you do]"
       , "  help"
+      , "  whoami"
       ]
 
 
