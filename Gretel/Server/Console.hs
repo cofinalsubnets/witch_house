@@ -21,7 +21,7 @@ startConsole opts tmw = do
     ["clients"] -> do let ks = getKeys w
                           hs = filter (\k -> isJust $ getHandle k w) ks
                       putStrLn $ show (length hs) ++ " clients:"
-                      mapM_ putStrLn ks
+                      mapM_ putStrLn hs
     ("broadcast":ss) -> do let ks = getKeys w
                                hs = catMaybes $ map (\k -> getHandle k w) ks
                                msg = unwords ss
