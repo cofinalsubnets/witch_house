@@ -23,8 +23,8 @@ startServer opts = do
             putStrLn "Starting console..."
             startConsole opts tmw
 
--- | Accept connections on the designated port. For each connection,
--- fork off a process to forward its requests to the queue.
+-- | Accept connections on the designated port. Fork off a thread to
+-- handle requests for each incoming connection.
 server :: Options -> TMVar World -> IO ()
 server opts tmw = do
   sock <- listenOn $ PortNumber (fromIntegral . portNo $ opts)
@@ -38,8 +38,16 @@ server opts tmw = do
   forever $ do
     (h,hn,p') <- accept sock
     logMsg V1 $ concat ["Connected: ", hn, ":", show p']
+    -- Start the user session.
     forkFinally (session h hn p' tmw logMsg) (\_ -> logMsg V1 $ concat ["Disconnected: ", hn, ":", show p'])
 
+-- | Attempt to log in a user. If the login succeeds, process their requests
+-- until they disconnect or their connection is killed by another user.
+--
+-- We need to decide on a way to automatically disconnect users after (say) a
+-- timeout period). Maybe store a 'last heard from' field in the client, and
+-- check that under some condition (max clients reached and someone tries to
+-- log in, for example).
 session :: Handle -> HostName -> PortNumber -> TMVar World -> (Verbosity -> String -> IO ()) -> IO ()
 session h hn p tmw logM = do
   res <- login h tmw
@@ -51,23 +59,30 @@ session h hn p tmw logM = do
       serve h n tmw
 
 
-
+-- | Attempt to log in a user. Checks:
+-- 1. Whether a client is already associated with the supplied name,
+-- in which case the attempt fails.
+-- 2. Whether an object with the supplied name exists, in which case
+-- that object's client is set to this user.
+-- 3. Failing that, create a new object and set its client to this
+-- user.
+--
+-- This function is probably much too long.
 login :: Handle -> TMVar World -> IO (Either String String)
 login h tmw = do
   hPutStr h "What's yr name?? "
   hFlush h
   n <- hGetLine h
-  let greeting = do hPutStrLn h $ "Hiya " ++ n ++ "!"
-                    hFlush h
   w <- atomically $ takeTMVar tmw
   case getClient n w of
-    Nothing -> do greeting
-                  tid <- myThreadId
+    Nothing -> do hPutStrLn h $ "Hiya " ++ n ++ "!"
+                  hFlush h
+                  tid <- myThreadId -- Store thread id so it can be reliably killed.
                   let c = Player h tid
-                      w'=  if hasKey n w
+                      w'=  if hasObj n w
                              then execWorld (setClient' n c) w
-                              -- TODO: set initial location in a sane way
-                             else let ws = addKey' n >> setLoc' n "Root of the World" >> setClient' n c
+                              -- TODO: set initial location in a sane way. this is totally arbitrary.
+                             else let ws = addObj' n >> setLoc' n "Root of the World" >> setClient' n c
                                   in execWorld ws w
                   atomically $ putTMVar tmw w'
                   return $ Right n
@@ -77,11 +92,14 @@ login h tmw = do
                  hClose h
                  return $ Left n
 
+-- | Handle user requests until the user disconnects, or their connection
+-- is killed.
 serve :: Handle -> String -> TMVar World -> IO ()
 serve h n tmw = do
     do msg <- hGetLine h
        case msg of
 
+         -- TODO: Use a command parser here like for regular commands!
          "quit" -> do w <- atomically $ takeTMVar tmw
                       let w' = execWorld (unsetClient' n) w
                       atomically $ putTMVar tmw w'
@@ -92,7 +110,7 @@ serve h n tmw = do
 
          _ -> do w <- atomically $ takeTMVar tmw
                  let txt = unwords [quote n,msg]
-                     cmd  = parseCommand rootMap txt
+                     cmd = parseCommand rootMap txt
                      -- TODO: _correctly_ quote the name.
                      quote s = "\"" ++ s ++ "\""
                      (ns,w') = cmd w
@@ -101,6 +119,7 @@ serve h n tmw = do
                  serve h n tmw
 
 
+-- | Wrapper for notify that does nothing with an empty message.
 notify' :: World -> Notification -> IO ()
-notify' w (Notify n msg) = when (not $ null msg) (notifyKey n msg w)
+notify' w (Notify n msg) = when (not $ null msg) (notifyObj n msg w)
 

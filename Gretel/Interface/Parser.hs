@@ -30,6 +30,7 @@ mLookup k cm n = case M.lookup k cm of
   
 
 -- | TODO: Write tests for this. Make it generally suck less.
+-- maybe use parsec
 tokenize :: String -> Maybe [String]
 tokenize s = sequence $ unquoted s []
   where

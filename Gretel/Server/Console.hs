@@ -18,13 +18,13 @@ startConsole opts tmw = do
                         writeFile file $ show w
                         putStrLn "done!"
 
-    ["clients"] -> do let ks = getKeys w
+    ["clients"] -> do let ks = getObjs w
                           cs = filter (\k -> isJust $ getClient k w) ks
                       putStrLn $ show (length cs) ++ " clients:"
                       mapM_ putStrLn cs
-    ("broadcast":ss) -> do let ks = getKeys w
+    ("broadcast":ss) -> do let ks = getObjs w
                                msg = unwords ss
-                           mapM_ (\k -> notifyKey k msg w) ks
+                           mapM_ (\k -> notifyObj k msg w) ks
 
     ["quit"] -> exitSuccess
     ["exit"] -> exitSuccess

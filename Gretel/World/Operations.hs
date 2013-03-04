@@ -1,4 +1,5 @@
 {-# LANGUAGE Rank2Types, FlexibleContexts #-}
+-- | Aggregates and exports functions for interacting with the world.
 module Gretel.World.Operations
 ( makes
 , adjoins
@@ -10,8 +11,8 @@ module Gretel.World.Operations
 , enters
 , drops
 , leaves
-, getKeys
-, hasKey
+, getObjs
+, hasObj
 , exitsFor
 , from
 , getLoc
@@ -26,7 +27,7 @@ module Gretel.World.Operations
 , setClient'
 , unsetClient
 , unsetClient'
-, addKey
+, addObj
 , mkWorld
 , getName'
 , getDesc'
@@ -40,32 +41,38 @@ module Gretel.World.Operations
 , setDesc'
 , addExit'
 , delExit'
-, addKey'
-, delKey
-, delKey'
+, addObj'
+, delObj
+, delObj'
 , notify
-, notifyKey
+, notifyObj
 , kill
 ) where
 
-import Data.Maybe
 import Data.Map (Map)
 import Gretel.World.Types
 
 type NodeMap = Map String Node
 
+-- | Creates a new object, using the location of the first
+-- argument as the initial location. The first argument is
+-- intuitively the 'creator'; the second argument is the
+-- name of the created object.
 makes :: String -> String -> WT NodeMap
-n1 `makes` n2 = \w ->
-  if not (hasKey n1 w)
+creator `makes` object = \w ->
+  if not (hasObj creator w)
     then (False,w)
-    else setLoc n2 (fromJust $ getLoc n1 w) . snd $ addKey n2 w
+    else setLoc object (getLoc' creator w) . snd $ addObj object w
 
+-- | alias for addExit
 adjoins :: World w k c => k -> k -> String -> WT w
 adjoins = addExit
 
+-- | alias for delExit
 deadends :: World w k c => k -> String -> WT w
 deadends = delExit
 
+-- | setDesc with the arguments reversed.
 describes :: World w k c => String -> k -> WT w
 describes = flip setDesc
 

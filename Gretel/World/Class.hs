@@ -1,4 +1,7 @@
 {-# LANGUAGE Rank2Types, FunctionalDependencies, ExistentialQuantification #-}
+-- Defines the interface for the `world', the data structure that stores program state.
+-- The server should get and set attributes of the world using methods of the World
+-- typeclass.
 module Gretel.World.Class
 ( WT
 , World
@@ -20,12 +23,12 @@ module Gretel.World.Class
 , unsetClient'
 , notify
 , kill
-, notifyKey
+, notifyObj
 , getExits
 , addExit
 , delExit
-, getKeys
-, hasKey
+, getObjs
+, hasObj
 , contents
 , exitsFor
 , from
@@ -34,7 +37,7 @@ module Gretel.World.Class
 , drops
 , enters
 , leaves
-, addKey
+, addObj
 , mkWorld
 , getName'
 , getDesc'
@@ -48,13 +51,15 @@ module Gretel.World.Class
 , setDesc'
 , addExit'
 , delExit'
-, addKey'
-, delKey
-, delKey'
+, addObj'
+, delObj
+, delObj'
 ) where
 
 import Data.Maybe (fromJust)
 
+-- Convenience type for boolean (succeed or fail) transformers
+-- of world state.
 type WT w = forall k. forall c. World w k c => w -> (Bool,w)
 
 -- | State monad for world instances.
@@ -76,12 +81,15 @@ evalWorld ws = fst . runWorld ws
 execWorld :: WS w r -> w -> w
 execWorld ws = snd . runWorld ws
 
+-- Interface for clients using the world. Provides methods to send messages and 
+-- terminate connections.
 class Client c where
   notify :: c -> String -> IO ()
   kill :: c -> IO ()
 
 -- | Class defining an interface for `worlds' capable of storing program
--- state.
+-- state. Each world has a `object key' and a `client' type, which are uniquely
+-- determined by the type of the world and the type of the key, respectively.
 class (Ord k, Eq k, Client c) => World w k c | w -> k, k -> c where
   getLoc :: k -> w -> Maybe k
   setLoc :: k -> k -> WT w
@@ -92,18 +100,18 @@ class (Ord k, Eq k, Client c) => World w k c | w -> k, k -> c where
   getDesc :: k -> w -> Maybe String
   setDesc :: k -> String -> WT w
 
-  getClient :: k -> w -> Maybe c
-  setClient :: k -> c -> WT w
+  getClient   :: k -> w -> Maybe c
+  setClient   :: k -> c -> WT w
   unsetClient :: k -> WT w
 
   getExits :: k -> w -> Maybe [(String,k)]
   addExit  :: k -> k -> String -> WT w
   delExit  :: k -> String -> WT w
 
-  getKeys :: w -> [k]
-  addKey :: k -> WT w
-  hasKey :: k -> w -> Bool
-  delKey :: k -> WT w
+  getObjs :: w -> [k]
+  addObj  :: k -> WT w
+  hasObj  :: k -> w -> Bool
+  delObj  :: k -> WT w
 
   mkWorld :: w
 
@@ -116,7 +124,7 @@ class (Ord k, Eq k, Client c) => World w k c | w -> k, k -> c where
 
   contents :: k -> w -> Maybe [k]
   contents k w
-    | hasKey k w = Just $ [ c | c <- getKeys w, getLoc c w == Just k ]
+    | hasObj k w = Just $ [ c | c <- getObjs w, getLoc c w == Just k ]
     | otherwise = Nothing
                    
   goes :: k -> String -> WT w
@@ -145,8 +153,10 @@ class (Ord k, Eq k, Client c) => World w k c | w -> k, k -> c where
   leaves :: k -> k -> WT w
   k1 `leaves` k2 = k2 `drops` k1
 
-  notifyKey :: k -> String -> w -> IO ()
-  notifyKey k msg w = case getClient k w of
+  -- | Convenience method for sending a notification directly
+  -- to an object. (composes notify and getObj)
+  notifyObj :: k -> String -> w -> IO ()
+  notifyObj k msg w = case getClient k w of
     Nothing -> return ()
     Just c  -> notify c msg
 
@@ -197,11 +207,11 @@ addExit' k1 k2 = WS . addExit k1 k2
 delExit' ::  World w k c => k -> String -> WS w Bool
 delExit' k = WS . delExit k
 
-addKey' ::  World w k c => k -> WS w Bool
-addKey' = WS . addKey
+addObj' ::  World w k c => k -> WS w Bool
+addObj' = WS . addObj
 
-delKey' ::  World w k c => k -> WS w Bool
-delKey' = WS . delKey
+delObj' ::  World w k c => k -> WS w Bool
+delObj' = WS . delObj
 
 unsetClient' :: World w k c => k -> WS w Bool
 unsetClient' = WS . unsetClient
