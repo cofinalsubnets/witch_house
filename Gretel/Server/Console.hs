@@ -25,7 +25,7 @@ startConsole opts tmw = do
     ("broadcast":ss) -> do let ks = getKeys w
                                hs = catMaybes $ map (\k -> getHandle k w) ks
                                msg = unwords ss
-                           mapM_ (\h -> hPutStrLn h msg) hs
+                           mapM_ (\h -> hPutStrLn h msg >> hFlush h) hs
 
     ["quit"] -> exitSuccess
     ["exit"] -> exitSuccess

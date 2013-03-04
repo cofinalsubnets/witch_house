@@ -84,4 +84,7 @@ instance World (Map String Node) String where
     let n' = n { handle = Nothing }
     return $ M.insert k n' w
 
+  -- TODO: make this better.
+  delKey k w = (True,M.delete k w)
+
 

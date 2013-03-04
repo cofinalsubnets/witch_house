@@ -45,6 +45,8 @@ module Gretel.World.Class
 , addExit'
 , delExit'
 , addKey'
+, delKey
+, delKey'
 ) where
 
 import System.IO (Handle)
@@ -94,6 +96,7 @@ class (Ord k, Eq k) => World w k | w -> k where
   getKeys :: w -> [k]
   addKey :: k -> WT w
   hasKey :: k -> w -> Bool
+  delKey :: k -> WT w
 
   mkWorld :: w
 
@@ -188,4 +191,7 @@ delExit' k = WS . delExit k
 
 addKey' :: World w k => k -> WS w Bool
 addKey' = WS . addKey
+
+delKey' :: World w k => k -> WS w Bool
+delKey' = WS . delKey
 

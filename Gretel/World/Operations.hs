@@ -41,6 +41,8 @@ module Gretel.World.Operations
 , addExit'
 , delExit'
 , addKey'
+, delKey
+, delKey'
 ) where
 
 import Data.Maybe

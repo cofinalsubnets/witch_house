@@ -5,6 +5,7 @@ module Gretel.Interface.Commands
 ) where
 
 import Prelude hiding (take, drop)
+import Data.Maybe (isNothing)
 import Gretel.World
 import Gretel.Interface.Types
 import qualified Data.Map as M
@@ -27,6 +28,7 @@ rootMap = M.fromList $
   , ("say", say)
   , ("/me", me)
   , ("help", help)
+  , ("destroy", destroy)
   ]
 
 notifyAll :: String -> String -> World -> [Notification]
@@ -61,6 +63,7 @@ help n _ w = (notify1 n helpMsg,w)
       ]
 
 
+
 huh :: String -> WorldTransformer [Notification]
 huh n = (notify1 n "Huh?" ,)
 
@@ -72,6 +75,13 @@ me :: Command
 me n s w = let msg = n ++ " " ++ unwords s
   in (notifyAll (getLoc' n w) msg w,w)
 
+destroy :: Command
+destroy n [t] w
+ | not $ hasKey t w = (notify1 n "You can't destroy what doesn't exist!",w)
+ | isNothing $ getLoc t w = (notify1 n "You can't destroy the root of the world!",w)
+ | n == t = (notify1 n "Don't destroy yourself. There's always another option!", w)
+ | otherwise = (notify1 n $ t++" has been destroyed.",execWorld (delKey' t) w)
+destroy n _ w = huh n w
 
 exits :: Command
 exits n [] w = let es = map fst $ exitsFor' n w
