@@ -1,8 +1,8 @@
 module Gretel.Server (startServer) where
 
-import Control.Concurrent.STM
 import Control.Monad
-import GHC.Conc (forkIO, getNumCapabilities)
+import Control.Concurrent
+import Control.Concurrent.STM
 import Network
 import System.IO
 
@@ -37,13 +37,12 @@ server opts tmw = do
 
   forever $ do
     (h,hn,p') <- accept sock
-    forkIO $ session h hn p' tmw logMsg
+    logMsg V1 $ concat ["Connected: ", hn, ":", show p']
+    forkFinally (session h hn p' tmw logMsg) (\_ -> logMsg V1 $ concat ["Disconnected: ", hn, ":", show p'])
 
 session :: Handle -> HostName -> PortNumber -> TMVar World -> (Verbosity -> String -> IO ()) -> IO ()
 session h hn p tmw logM = do
-  logM V1 $ concat ["Connected: ", hn, ":", show p]
   res <- login h tmw
-
   case res of
     Left n -> do
       logM V2 $ hn ++ ":" ++ show p ++ " attempted to log in as " ++ n
@@ -51,7 +50,6 @@ session h hn p tmw logM = do
       logM V2 $ hn ++ ":" ++ show p ++ " logged in as " ++ n
       serve h n tmw
 
-  logM V1 $ concat ["Disconnected: ", hn, ":", show p]
 
 
 login :: Handle -> TMVar World -> IO (Either String String)
@@ -62,12 +60,14 @@ login h tmw = do
   let greeting = do hPutStrLn h $ "Hiya " ++ n ++ "!"
                     hFlush h
   w <- atomically $ takeTMVar tmw
-  case getHandle n w of
+  case getClient n w of
     Nothing -> do greeting
-                  let w' = if hasKey n w
-                             then execWorld (setHandle' n h) w
-                             -- TODO: set initial location in a sane way
-                             else let ws = addKey' n >> setLoc' n "Root of the World" >> setHandle' n h
+                  tid <- myThreadId
+                  let c = Player h tid
+                      w'=  if hasKey n w
+                             then execWorld (setClient' n c) w
+                              -- TODO: set initial location in a sane way
+                             else let ws = addKey' n >> setLoc' n "Root of the World" >> setClient' n c
                                   in execWorld ws w
                   atomically $ putTMVar tmw w'
                   return $ Right n
@@ -79,32 +79,28 @@ login h tmw = do
 
 serve :: Handle -> String -> TMVar World -> IO ()
 serve h n tmw = do
-  msg <- hGetLine h
-  case msg of
+    do msg <- hGetLine h
+       case msg of
 
-    "quit" -> do hPutStrLn h "Bye!"
-                 hClose h
-                 w <- atomically $ takeTMVar tmw
-                 let w' = execWorld (unsetHandle' n) w
+         "quit" -> do w <- atomically $ takeTMVar tmw
+                      let w' = execWorld (unsetClient' n) w
+                      atomically $ putTMVar tmw w'
+                      hPutStrLn h "Bye!"
+                      kill $ getClient' n w
+
+         "" -> serve h n tmw
+
+         _ -> do w <- atomically $ takeTMVar tmw
+                 let txt = unwords [quote n,msg]
+                     cmd  = parseCommand rootMap txt
+                     -- TODO: _correctly_ quote the name.
+                     quote s = "\"" ++ s ++ "\""
+                     (ns,w') = cmd w
+                 mapM_ (notify' w') ns
                  atomically $ putTMVar tmw w'
+                 serve h n tmw
 
-    "" -> serve h n tmw
 
-    _ -> do w <- atomically $ takeTMVar tmw
-            let txt = unwords [quote n,msg]
-                cmd  = parseCommand rootMap txt
-                -- TODO: _correctly_ quote the name.
-                quote s = "\"" ++ s ++ "\""
-                (ns,w') = cmd w
-            mapM_ (notify w') ns
-            atomically $ putTMVar tmw w'
-            serve h n tmw
-                        
-
-notify :: World -> Notification -> IO ()
-notify w (Notify n msg) = when (not $ null msg) $ do
-  case getHandle n w of
-    Nothing -> return ()
-    Just h -> do hPutStrLn h msg
-                 hFlush h
+notify' :: World -> Notification -> IO ()
+notify' w (Notify n msg) = when (not $ null msg) (notifyKey n msg w)
 

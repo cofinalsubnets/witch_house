@@ -1,11 +1,11 @@
 module Gretel.Server.Console (startConsole) where
 
 import Control.Concurrent.STM (atomically, TMVar, readTMVar)
-import System.IO (hPutStrLn, hFlush, stdout)
+import System.IO (hFlush, stdout)
 import System.Exit (exitSuccess)
 import Gretel.Server.Types
 import Gretel.World
-import Data.Maybe (catMaybes, isJust)
+import Data.Maybe (isJust)
 
 startConsole :: Options -> TMVar World -> IO ()
 startConsole opts tmw = do
@@ -19,13 +19,12 @@ startConsole opts tmw = do
                         putStrLn "done!"
 
     ["clients"] -> do let ks = getKeys w
-                          hs = filter (\k -> isJust $ getHandle k w) ks
-                      putStrLn $ show (length hs) ++ " clients:"
-                      mapM_ putStrLn hs
+                          cs = filter (\k -> isJust $ getClient k w) ks
+                      putStrLn $ show (length cs) ++ " clients:"
+                      mapM_ putStrLn cs
     ("broadcast":ss) -> do let ks = getKeys w
-                               hs = catMaybes $ map (\k -> getHandle k w) ks
                                msg = unwords ss
-                           mapM_ (\h -> hPutStrLn h msg >> hFlush h) hs
+                           mapM_ (\k -> notifyKey k msg w) ks
 
     ["quit"] -> exitSuccess
     ["exit"] -> exitSuccess

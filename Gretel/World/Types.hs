@@ -1,34 +1,45 @@
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 module Gretel.World.Types
 ( Node(..)
+, Player(..)
 , module Gretel.World.Class
 ) where
 
 import Gretel.World.Class
 import Data.Map (Map)
 import qualified Data.Map as M
-import System.IO (Handle)
+import System.IO
+import GHC.Conc
+import System.IO.Unsafe (unsafePerformIO)
 
 data Node = Node { name        :: String
                  , description :: String
                  , location    :: Maybe String
                  , edges       :: Map String String
-                 , handle      :: Maybe Handle
+                 , client      :: Maybe Player
                  } deriving (Show,Eq)
+
+data Player = Player { handle :: Handle
+                     , thread :: ThreadId
+                     } deriving (Show,Eq)
+
+instance Client Player where
+  notify (Player h _) msg = hPutStrLn h msg >> hFlush h
+  kill (Player h t) = (forkIO $ hFlush h >> hClose h >> killThread t) >> return ()
 
 mkNode :: Node
 mkNode = Node { location    = Nothing
               , edges       = M.fromList []
               , name        = ""
               , description = ""
-              , handle      = Nothing
+              , client      = Nothing
               }
 
 update :: a -> Maybe a -> (Bool,a)
 update g u = case u of Nothing -> (False,g)
                        Just g' -> (True,g')
 
-instance World (Map String Node) String where
+instance World (Map String Node) String Player where
   getLoc n g = M.lookup n g >>= location
 
   setLoc n l g = update g $ do
@@ -64,10 +75,15 @@ instance World (Map String Node) String where
     let n' = n { edges = M.delete d $ edges n }
     return $ M.insert k n' g
 
-  getHandle k g = M.lookup k g >>= handle
-  setHandle k h g = update g $ do
+  getClient k g = M.lookup k g >>= client
+  setClient k c g = update g $ do
     n <- M.lookup k g
-    let n' = n { handle = Just h }
+    let n' = n { client = Just c }
+    return $ M.insert k n' g
+
+  unsetClient k g = update g $ do
+    n <- M.lookup k g
+    let n' = n { client = Nothing }
     return $ M.insert k n' g
 
   getKeys = M.keys
@@ -79,12 +95,9 @@ instance World (Map String Node) String where
 
   mkWorld = M.fromList []
 
-  unsetHandle k w = update w $ do
-    n <- M.lookup k w
-    let n' = n { handle = Nothing }
-    return $ M.insert k n' w
-
   -- TODO: make this better.
-  delKey k w = (True,M.delete k w)
-
+  delKey k w = let resp = (True,M.delete k w)
+    in case getClient k w of
+      Nothing -> resp
+      Just c -> unsafePerformIO $ kill c >> return resp
 

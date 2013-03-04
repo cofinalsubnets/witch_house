@@ -20,29 +20,32 @@ module Gretel.World.Operations
 , setDesc
 , getName
 , setName
-, getHandle
-, setHandle
-, unsetHandle
+, getClient
+, getClient'
+, setClient
+, setClient'
+, unsetClient
+, unsetClient'
 , addKey
 , mkWorld
 , getName'
 , getDesc'
 , getExits'
 , exitsFor'
-, getHandle'
 , getLoc'
 , from'
 , contents'
 , setLoc'
 , setName'
 , setDesc'
-, setHandle'
-, unsetHandle'
 , addExit'
 , delExit'
 , addKey'
 , delKey
 , delKey'
+, notify
+, notifyKey
+, kill
 ) where
 
 import Data.Maybe
@@ -57,12 +60,12 @@ n1 `makes` n2 = \w ->
     then (False,w)
     else setLoc n2 (fromJust $ getLoc n1 w) . snd $ addKey n2 w
 
-adjoins :: World w k => k -> k -> String -> WT w
+adjoins :: World w k c => k -> k -> String -> WT w
 adjoins = addExit
 
-deadends :: World w k => k -> String -> WT w
+deadends :: World w k c => k -> String -> WT w
 deadends = delExit
 
-describes :: World w k => String -> k -> WT w
+describes :: World w k c => String -> k -> WT w
 describes = flip setDesc
 

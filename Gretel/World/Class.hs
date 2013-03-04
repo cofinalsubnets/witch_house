@@ -3,6 +3,7 @@ module Gretel.World.Class
 ( WT
 , World
 , WS(..)
+, Client
 , execWorld
 , evalWorld
 , getLoc
@@ -11,9 +12,15 @@ module Gretel.World.Class
 , setName
 , getDesc
 , setDesc
-, getHandle
-, setHandle
-, unsetHandle
+, getClient
+, getClient'
+, setClient
+, setClient'
+, unsetClient
+, unsetClient'
+, notify
+, kill
+, notifyKey
 , getExits
 , addExit
 , delExit
@@ -33,15 +40,12 @@ module Gretel.World.Class
 , getDesc'
 , getExits'
 , exitsFor'
-, getHandle'
 , getLoc'
 , from'
 , contents'
 , setLoc'
 , setName'
 , setDesc'
-, setHandle'
-, unsetHandle'
 , addExit'
 , delExit'
 , addKey'
@@ -49,10 +53,9 @@ module Gretel.World.Class
 , delKey'
 ) where
 
-import System.IO (Handle)
 import Data.Maybe (fromJust)
 
-type WT w = forall k. World w k => w -> (Bool,w)
+type WT w = forall k. forall c. World w k c => w -> (Bool,w)
 
 -- | State monad for world instances.
 newtype WS w r = WS { runWorld :: (w -> (r,w)) }
@@ -73,9 +76,13 @@ evalWorld ws = fst . runWorld ws
 execWorld :: WS w r -> w -> w
 execWorld ws = snd . runWorld ws
 
+class Client c where
+  notify :: c -> String -> IO ()
+  kill :: c -> IO ()
+
 -- | Class defining an interface for `worlds' capable of storing program
 -- state.
-class (Ord k, Eq k) => World w k | w -> k where
+class (Ord k, Eq k, Client c) => World w k c | w -> k, k -> c where
   getLoc :: k -> w -> Maybe k
   setLoc :: k -> k -> WT w
 
@@ -85,9 +92,9 @@ class (Ord k, Eq k) => World w k | w -> k where
   getDesc :: k -> w -> Maybe String
   setDesc :: k -> String -> WT w
 
-  getHandle :: k -> w -> Maybe Handle
-  setHandle :: k -> Handle -> WT w
-  unsetHandle :: k -> WT w
+  getClient :: k -> w -> Maybe c
+  setClient :: k -> c -> WT w
+  unsetClient :: k -> WT w
 
   getExits :: k -> w -> Maybe [(String,k)]
   addExit  :: k -> k -> String -> WT w
@@ -138,60 +145,64 @@ class (Ord k, Eq k) => World w k | w -> k where
   leaves :: k -> k -> WT w
   k1 `leaves` k2 = k2 `drops` k1
 
+  notifyKey :: k -> String -> w -> IO ()
+  notifyKey k msg w = case getClient k w of
+    Nothing -> return ()
+    Just c  -> notify c msg
 
 -- Supplemental method versions. `Prime' getter methods will extract their
 -- normal return value from Maybe (and raise an exception if the value is
 -- Nothing). Prime setter methods will return a transformer function in the
 -- WS state monad.
 
-getName' :: World w k => k -> w -> String
+getName' ::  World w k c => k -> w -> String
 getName' k = fromJust . getName k
 
-getDesc' :: World w k => k -> w -> String
+getDesc' ::  World w k c => k -> w -> String
 getDesc' k = fromJust . getDesc k
 
-getHandle' :: World w k => k -> w -> Handle
-getHandle' k = fromJust . getHandle k
+getClient' :: (Client c,  World w k c) => k -> w -> c
+getClient' k = fromJust . getClient k
 
-getExits' :: World w k => k -> w -> [(String,k)]
+getExits' ::  World w k c => k -> w -> [(String,k)]
 getExits' k = fromJust . getExits k
 
-exitsFor' :: World w k => k -> w -> [(String,k)]
+exitsFor' ::  World w k c => k -> w -> [(String,k)]
 exitsFor' k = fromJust . exitsFor k
 
-getLoc' :: World w k => k -> w -> k
+getLoc' ::  World w k c => k -> w -> k
 getLoc' k = fromJust . getLoc k
 
-from' :: World w k => String -> k -> w -> k
+from' ::  World w k c => String -> k -> w -> k
 from' s k = fromJust . from s k
 
-contents' :: World w k => k -> w -> [k]
+contents' ::  World w k c => k -> w -> [k]
 contents' k = fromJust . contents k
 
-setLoc' :: World w k => k -> k -> WS w Bool
+setLoc' ::  World w k c => k -> k -> WS w Bool
 setLoc' k = WS . setLoc k
 
-setName' :: World w k => k -> String -> WS w Bool
+setName' ::  World w k c => k -> String -> WS w Bool
 setName' k = WS . setName k
 
-setDesc' :: World w k => k -> String -> WS w Bool
+setDesc' ::  World w k c => k -> String -> WS w Bool
 setDesc' k = WS . setDesc k
 
-setHandle' :: World w k => k -> Handle -> WS w Bool
-setHandle' k = WS . setHandle k
+setClient' ::  World w k c => k -> c -> WS w Bool
+setClient' k = WS . setClient k
 
-unsetHandle' :: World w k => k -> WS w Bool
-unsetHandle' = WS . unsetHandle
-
-addExit' :: World w k => k -> k -> String -> WS w Bool
+addExit' ::  World w k c => k -> k -> String -> WS w Bool
 addExit' k1 k2 = WS . addExit k1 k2
 
-delExit' :: World w k => k -> String -> WS w Bool
+delExit' ::  World w k c => k -> String -> WS w Bool
 delExit' k = WS . delExit k
 
-addKey' :: World w k => k -> WS w Bool
+addKey' ::  World w k c => k -> WS w Bool
 addKey' = WS . addKey
 
-delKey' :: World w k => k -> WS w Bool
+delKey' ::  World w k c => k -> WS w Bool
 delKey' = WS . delKey
+
+unsetClient' :: World w k c => k -> WS w Bool
+unsetClient' = WS . unsetClient
 

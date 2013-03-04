@@ -1,6 +1,7 @@
 module Gretel.World
 ( Node(..)
 , World
+, Player(..)
 , WorldTransformer
 , WS(..)
 , execWorld
