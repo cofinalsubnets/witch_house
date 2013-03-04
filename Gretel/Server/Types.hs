@@ -6,7 +6,7 @@ module Gretel.Server.Types
 
 import System.IO (Handle)
 
-import Gretel.World.Types
+import Gretel.World
 
 data Req = Action { body   :: String
                   , client :: String

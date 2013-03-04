@@ -4,10 +4,10 @@ module Gretel.Interface.Types
 , Notification(..)
 ) where
 
-import Gretel.World (Name, WorldTransformer)
 import Data.Map (Map)
+import Gretel.World (WorldTransformer)
 
-type Command = Name -> [String] -> WorldTransformer [Notification]
+type Command = String -> [String] -> WorldTransformer [Notification]
 type CommandMap = Map String Command
 
 data Notification = Notify { target  :: String

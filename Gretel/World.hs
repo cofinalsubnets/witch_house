@@ -1,20 +1,19 @@
 module Gretel.World
-( module Gretel.World.Node
+( Node(..)
+, World
+, WorldTransformer
+, WS(..)
+, execWorld
+, evalWorld
 , module Gretel.World.Operations
-, module Gretel.World.Types
-, root
 ) where
 
-import Gretel.World.Node
+
 import Gretel.World.Operations
-import Gretel.World.Types
+import Gretel.World.Types hiding (World)
+import Gretel.World.Class()
+import Data.Map (Map)
 
-import Data.Map (elems)
-import Data.Maybe (isNothing)
-
--- | Return the root of the world.
--- TODO: enforce the constraint that a world have exactly one root with the
--- type system.
-root :: World -> Node
-root = head . filter (isNothing . location) . elems
+type World = Map String Node
+type WorldTransformer a = World -> (a,World)
 

@@ -62,14 +62,17 @@ login h tmw = do
   w <- atomically $ takeTMVar tmw
   case M.lookup n w of
     Nothing -> do greeting
-                  let node = mkNode { name = n, location = Just $ name . root $ w, handle = Just h }
-                      w'   = addNode node w
+                  let ws = WS (addKey n) >>
+                           -- TODO: set the initial location in a sane way.
+                           WS (setLoc n "Root of the World") >>
+                           WS (setHandle n h)
+                      w' = execWorld ws w
                   atomically $ putTMVar tmw w'
                   return $ Right n
 
     Just n' -> case handle n' of
       Nothing -> do greeting
-                    let w' = setHandle n (Just h) w
+                    let (_,w') = setHandle n h w
                     atomically $ putTMVar tmw w'
                     return $ Right n
       Just _ -> do atomically $ putTMVar tmw w
@@ -85,7 +88,7 @@ serve h n tmw = do
     "quit" -> do hPutStrLn h "Bye!"
                  hClose h
                  w <- atomically $ takeTMVar tmw
-                 let w' = setHandle n Nothing w
+                 let (_,w') = unsetHandle n w
                  atomically $ putTMVar tmw w'
 
     "" -> serve h n tmw
@@ -106,7 +109,4 @@ notify w (Notify n msg) = when (not $ null msg) $ do
   case M.lookup n w >>= handle of
     Nothing -> return ()
     Just h -> hPutStrLn h msg
-
-setHandle :: Name -> Maybe Handle -> World -> World
-setHandle n h w = let n' = w M.! n in M.insert n (n' { handle = h }) w
 
