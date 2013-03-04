@@ -28,7 +28,9 @@ rootMap = M.fromList $
   , ("say", say)
   , ("/me", me)
   , ("help", help)
-  , ("destroy", destroy)
+  , ("kill", destroy)
+  , ("inventory", inventory)
+  , ("whoami", whoami)
   ]
 
 notifyAll :: String -> String -> World -> [Notification]
@@ -89,6 +91,15 @@ exits n [] w = let es = map fst $ exitsFor' n w
                    msg = intercalate "\n" ms
   in (notify1 n msg,w)
 exits n _ w = huh n w
+
+inventory :: Command
+inventory n [] w = let cs = contents' n w
+  in (notify1 n $ unlines cs, w)
+inventory n _ w = huh n w
+
+whoami :: Command
+whoami n [] w = (notify1 n n,w)
+whoami n _ w = huh n w
 
 go :: Command
 go n [dir] w = case n `goes` dir $ w of
