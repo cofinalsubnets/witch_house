@@ -57,8 +57,10 @@ session h hn p tmw logM = do
 login :: Handle -> TMVar World -> IO (Either String String)
 login h tmw = do
   hPutStr h "What's yr name?? "
+  hFlush h
   n <- hGetLine h
-  let greeting = hPutStrLn h $ "Hiya " ++ n ++ "!"
+  let greeting = do hPutStrLn h $ "Hiya " ++ n ++ "!"
+                    hFlush h
   w <- atomically $ takeTMVar tmw
   case getHandle n w of
     Nothing -> do greeting
@@ -103,5 +105,6 @@ notify :: World -> Notification -> IO ()
 notify w (Notify n msg) = when (not $ null msg) $ do
   case getHandle n w of
     Nothing -> return ()
-    Just h -> hPutStrLn h msg
+    Just h -> do hPutStrLn h msg
+                 hFlush h
 
