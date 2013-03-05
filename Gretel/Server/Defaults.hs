@@ -15,5 +15,5 @@ defaults = Options { portNo = 10101
                    }
 
 defaultWorld :: World
-defaultWorld = snd . addObj "Root of the World" $ mkWorld
+defaultWorld = fst . addObj "Root of the World" $ mkWorld
 

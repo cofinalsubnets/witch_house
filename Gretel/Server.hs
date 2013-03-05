@@ -79,10 +79,12 @@ login h tmw = do
                   hFlush h
                   tid <- myThreadId -- Store thread id so it can be reliably killed.
                   let c = Player h tid
-                      w'=  if hasObj n w
-                             then execWorld (setClient' n c) w
-                              -- TODO: set initial location in a sane way. this is totally arbitrary.
-                             else let ws = addObj' n >> setLoc' n "Root of the World" >> setClient' n c
+                      w' = if hasObj n w
+                             then execWorld (WS $ setClient n c) w
+                             else let ws = WS (addObj n) >>
+                                           -- TODO: set initial location in a sane way. this is totally arbitrary.
+                                           WS (setLoc n "Root of the World") >>
+                                           WS (setClient n c)
                                   in execWorld ws w
                   atomically $ putTMVar tmw w'
                   return $ Right n
@@ -100,26 +102,19 @@ serve h n tmw = do
        case msg of
 
          -- TODO: Use a command parser here like for regular commands!
-         "quit" -> do w <- atomically $ takeTMVar tmw
-                      let w' = execWorld (unsetClient' n) w
+         "quit" -> do hPutStrLn h "Bye!"
+                      w <- atomically $ takeTMVar tmw
+                      w' <- dropClient n w
                       atomically $ putTMVar tmw w'
-                      hPutStrLn h "Bye!"
-                      kill $ getClient' n w
 
          "" -> serve h n tmw
 
          _ -> do w <- atomically $ takeTMVar tmw
                  let txt = unwords [quote n,msg]
-                     cmd = parseCommand rootMap txt
                      -- TODO: _correctly_ quote the name.
                      quote s = "\"" ++ s ++ "\""
-                     (ns,w') = cmd w
-                 mapM_ (notify' w') ns
+                 w' <- parseCommand rootMap txt w
                  atomically $ putTMVar tmw w'
                  serve h n tmw
 
-
--- | Wrapper for notify that does nothing with an empty message.
-notify' :: World -> Notification -> IO ()
-notify' w (Notify n msg) = when (not $ null msg) (notifyObj n msg w)
 

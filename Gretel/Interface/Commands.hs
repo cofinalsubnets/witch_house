@@ -5,7 +5,7 @@ module Gretel.Interface.Commands
 ) where
 
 import Prelude hiding (take, drop)
-import Data.Maybe (isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import Gretel.World
 import Gretel.Interface.Types
 import qualified Data.Map as M
@@ -33,17 +33,14 @@ rootMap = M.fromList $
   , ("whoami",    whoami   )
   ]
 
-notifyAll :: String -> String -> World -> [Notification]
-notifyAll r msg = map (\n -> Notify n msg) . contents' r
+notifyAll :: String -> String -> World -> IO ()
+notifyAll r msg w = mapM_ (\n -> notify n msg w) $ contents' r w
 
-notify1 :: String -> String -> [Notification]
-notify1 n m = [Notify n m]
-
-notifyAllBut :: String -> String -> String -> World -> [Notification]
-notifyAllBut n r msg = map (\p -> Notify p msg) . filter (n/=) . contents' r
+notifyAllBut :: String -> String -> String -> World -> IO ()
+notifyAllBut n r msg w = mapM_ (\p -> notify p msg w) $ filter (n/=) $ contents' r w
 
 help :: Command
-help n _ w = (notify1 n helpMsg,w)
+help n _ w = notify n helpMsg w >> return w
   where
     helpMsg = unlines $
       [ "A superset of these commands is available:"
@@ -69,138 +66,138 @@ help n _ w = (notify1 n helpMsg,w)
 
 
 
-huh :: String -> WorldTransformer [Notification]
-huh n = (notify1 n "Huh?" ,)
+huh :: String -> World -> IO World
+huh n w = notify n "Huh?" w >> return w
 
 say :: Command
 say n s w = let msg = n ++ " says, \"" ++ unwords s ++ "\""
-  in (notifyAll (getLoc' n w) msg w,w)
+  in notifyAll (getLoc' n w) msg w >> return w
 
 me :: Command
 me n s w = let msg = n ++ " " ++ unwords s
-  in (notifyAll (getLoc' n w) msg w,w)
+  in notifyAll (getLoc' n w) msg w >> return w
 
 destroy :: Command
 destroy n [t] w
- | not $ hasObj t w = (notify1 n "You can't destroy what doesn't exist!", w)
- | isNothing $ getLoc t w = (notify1 n "You can't destroy the root of the world!", w)
- | n == t = (notify1 n "Don't destroy yourself. There's always another option!", w)
- | otherwise = (notify1 n $ t ++ " has been destroyed.", execWorld (delObj' t) w)
+ | not $ hasObj t w = notify n "You can't destroy what doesn't exist!" w >> return w
+ | isNothing $ getLoc t w = notify n "You can't destroy the root of the world!" w >> return w
+ | n == t = notify n "Don't destroy yourself. There's always another option!" w >> return w
+ | otherwise = notify n (t ++ " has been destroyed.") w >> (return . fst $ delObj t w)
 destroy n _ w = huh n w
 
 exits :: Command
 exits n [] w = let es = map fst $ exitsFor' n w
                    ms = "The following exits are available:":es
                    msg = intercalate "\n" ms
-  in (notify1 n msg, w)
+  in notify n msg w >> return w
 exits n _ w = huh n w
 
 inventory :: Command
 inventory n [] w = let cs = contents' n w
-  in (notify1 n $ unlines cs, w)
+  in notify n (unlines cs) w >> return w
 inventory n _ w = huh n w
 
 whoami :: Command
-whoami n [] w = (notify1 n n, w)
+whoami n [] w = notify n n w >> return w
 whoami n _ w = huh n w
 
 go :: Command
 go n [dir] w = case n `goes` dir $ w of
-  (False,w') -> (notify1 n "You can't go that way!", w')
-  (True, w') -> ( notify1 n (desc (getLoc' n w') w' [n]) ++ 
-                  notifyAllBut n (getLoc' n w') (n++" arrives from "++ (getLoc' n w) ++ ".") w' ++ 
-                  notifyAllBut n (getLoc' n w) (n++" goes "++dir++".") w'
-                , w')
+  (w', False) -> notify n "You can't go that way!" w' >> return w'
+  (w', True) -> do notify n (desc (getLoc' n w') w' [n]) w'
+                   notifyAllBut n (getLoc' n w') (n++" arrives from "++ (getLoc' n w) ++ ".") w'
+                   notifyAllBut n (getLoc' n w) (n++" goes "++dir++".") w'
+                   return w'
 
-go n [] w = (notify1 n "Go where?",w)
+go n [] w = notify n "Go where?" w >> return w
 go n _ w = huh n w
 
 unlink :: Command
 unlink _ [n,dir] w = case n `deadends` dir $ w of
-  (False,w') -> huh n w'
-  (True,w')  -> (notify1 n "", w')
+  (w', False) -> huh n w'
+  (w', True)  -> notify n "" w' >> return w'
 unlink n _ w = huh n w
 
 take :: Command
 take n [t] w = case n `takes` t $ w of
-  (False,w') -> (notify1 n $ "There's no " ++ t ++ " here."
-                , w')
-  (True, w') -> ( notify1 n ("You now have a " ++ t ++ ".") ++
-                  notifyAllBut n (getLoc' n w') (n ++ " picks up " ++ t) w'
-                , w')
-take n [] w = (notify1 n $ "Take what?",w)
+  (w', False) -> notify n ("There's no " ++ t ++ " here.") w' >> return w'
+
+  (w', True) -> do notify n ("You now have a " ++ t ++ ".") w'
+                   notifyAllBut n (getLoc' n w') (n ++ " picks up " ++ t) w'
+                   return  w'
+
+take n [] w = notify n "Take what?" w >> return w
 take n _ w = huh n w
 
 exit :: Command
 exit n [] w = case n `leaves` orig $ w of
-  (False,w') -> (notify1 n $ "You can't exit your current location.",w')
-  (True,w')  -> let dest = getLoc' n w'
-                in ( notify1 n (desc dest w [n]) ++
-                     notifyAllBut n dest (n++" arrives from "++orig++".") w' ++
-                     notifyAllBut n orig (n++" exits to "++dest++".") w'
-                   , w')
+  (w', False) -> notify n "You can't exit your current location." w' >> return w'
+  (w', True)  -> let dest = getLoc' n w'
+                in do notify n (desc dest w [n]) w'
+                      notifyAllBut n dest (n++" arrives from "++orig++".") w'
+                      notifyAllBut n orig (n++" exits to "++dest++".") w'
+                      return w'
   where orig = getLoc' n w
                  
 exit n _ w = huh n w
 
 look :: Command
-look n [] w = (notify1 n $ desc (getLoc' n w) w [n],w)
+look n [] w = notify n (desc (getLoc' n w) w [n]) w >> return w
 look n [dir] w = let loc = getLoc' n w
                      txt = do d <- dir `from` loc $ w
                               return $ desc d w []
-  in case txt of
-    Nothing -> (notify1 n "You don't see anything in that direction."
-               , w)
-    Just d  -> (notify1 n d, w)
+                     msg = fromMaybe "You don't see anything in that direction." txt
+  in notify n msg w >> return w
 look n _ w  = huh n w
 
 make :: Command
 make n [o] w = case n `makes` o $ w of
-  (False,w')  -> (notify1 n $ o ++ " already exists!", w')
-  (True,w') -> ((Notify n $ "You've created " ++ o ++ "."):(notifyAllBut n (getLoc' n w') (n++" creates "++o++".") w')
-               , w')
+  (w', False)  -> notify n (o ++ " already exists!") w' >> return w'
+  (w', True) -> do notify n ("You've created " ++ o ++ ".") w'
+                   notifyAllBut n (getLoc' n w') (n++" creates "++o++".") w'
+                   return w'
 make n _ w = huh n w
 
 enter :: Command
 enter n [o] w = case n `enters` o $ w of
-  (False,w') -> (notify1 n $ "You can't enter "++o++"."
-                , w')
-  (True,w')  -> let ol = getLoc' n w
-                    nl = getLoc' n w'
-    in ( notify1 n (desc nl w' [n]) ++
-         notifyAllBut n nl (n++" enters from "++ol++".") w' ++
-         notifyAllBut n ol (n++" enters "++o++".") w'
-       , w')
-enter n [] w = (notify1 n "Enter where?",w)
+  (w', False) -> do notify n ("You can't enter "++o++".") w'
+                    return w'
+  (w', True)  -> let ol = getLoc' n w
+                     nl = getLoc' n w'
+    in do notify n (desc nl w' [n]) w'
+          notifyAllBut n nl (n++" enters from "++ol++".") w'
+          notifyAllBut n ol (n++" enters "++o++".") w'
+          return w'
+enter n [] w = notify n "Enter where?" w >> return w
 enter n _ w = huh n w
 
 drop :: Command
 drop n [o] w = case n `drops` o $ w of
-  (False,w') -> (notify1 n "You can't drop what you don't have!",w')
-  (True,w')  -> ( notify1 n ("You drop " ++ o ++ ".") ++
-                  notifyAllBut n (getLoc' n w') (n++" drops "++o++".") w'
-                , w')
+  (w', False) -> notify n "You can't drop what you don't have!" w' >> return w'
+  (w', True)  -> do notify n ("You drop " ++ o ++ ".") w'
+                    notifyAllBut n (getLoc' n w') (n++" drops "++o++".") w'
+                    return w'
 drop n _ w = huh n w
 
 link :: Command
 link n [n1,n2,d] w = case (n1 `adjoins` n2) d w of
-  (False,w') -> (notify1 n "You can't link those rooms!" ,w')
-  (True,w')  -> ([],w')
+  (w', False) -> notify n "You can't link those rooms!" w' >> return w'
+  (w', True)  -> return w'
 link n _ w = huh n w
 
 describe :: Command
 describe n [o,d] w = case (d `describes` o) w of
-  (False,w') -> huh n w'
-  (True,w')  -> ([],w')
+  (w', False) -> huh n w'
+  (w', True)  -> return w'
 describe n _ w = huh n w
 
 examine :: Command
 examine n [t] w
   | hasObj n w && hasObj t w = if getLoc n w == getLoc t w
-    then (notify1 n $ desc t w [],w)
-    else (notify1 n $ "You see no "++t++" here.",w)
+    then notify n (desc t w []) w >> return w
+    else notify n ("You see no "++t++" here.") w >> return w
   | otherwise = huh n w
-examine n [] w = (notify1 n "Examine what?",w)
+examine n [] w = notify n "Examine what?" w >> return w
 examine n _ w = huh n w
 
 -- helper fns

@@ -1,9 +1,14 @@
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, Rank2Types, TupleSections #-}
 -- | Defines the World instance used by the rest of the program.
 module Gretel.World.Types
 ( Node(..)
 , Player(..)
 , module Gretel.World.Class
+, kill
+, getClient
+, setClient
+, dropClient
+, notify
 ) where
 
 import Gretel.World.Class
@@ -11,7 +16,6 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import System.IO
 import GHC.Conc
-import System.IO.Unsafe (unsafePerformIO)
 
 type Key = String
 
@@ -28,13 +32,13 @@ data Player = Player { handle :: Handle
                      , thread :: ThreadId
                      } deriving (Show,Eq)
 
-instance Client Player where
-  notify (Player h _) msg = hPutStrLn h msg >> hFlush h
-  -- | We fork off a new thread to close the original thread so clients don't
-  -- hang if they 'kill' another active client. There must be a better way to
-  -- do this though!
-  kill (Player h t) = do _ <- forkIO $ hFlush h >> hClose h >> killThread t
-                         return ()
+notify :: Key -> String -> Map Key Node -> IO ()
+notify k msg w = case getClient k w of
+  Nothing -> return ()
+  Just (Player h _) -> hPutStrLn h msg >> hFlush h
+
+kill :: Player -> IO ()
+kill (Player h t) = (forkIO $ hClose h >> killThread t) >> return ()
 
 mkNode :: Node
 mkNode = Node { location    = Nothing
@@ -44,11 +48,32 @@ mkNode = Node { location    = Nothing
               , client      = Nothing
               }
 
-update :: a -> Maybe a -> (Bool, a)
-update g u = case u of Nothing -> (False, g)
-                       Just g' -> (True, g')
+update :: a -> Maybe a -> (a, Bool)
+update g u = case u of Nothing -> (g, False)
+                       Just g' -> (g', True)
 
-instance World (Map Key Node) Key Player where
+getClient :: Key -> Map Key Node -> Maybe Player
+getClient n g = M.lookup n g >>= client
+
+setClient :: Key -> Player -> WT (Map Key Node)
+setClient k p g = update g $ do
+  n <- M.lookup k g
+  let n' = n { client = Just p }
+  return $ M.insert k n' g
+
+
+-- TODO: see if this can be generalized.
+dropClient :: Key -> Map Key Node -> IO (Map Key Node)
+dropClient k g = do 
+  case getClient k g of
+    Nothing -> return g
+    Just c  -> do kill c
+                  let n  = g M.! k
+                      n' = n { client = Nothing }
+                      g' = M.insert k n' g
+                  return g'
+
+instance World (Map Key Node) Key where
   getLoc n g = M.lookup n g >>= location
 
   setLoc n l g = update g $ do
@@ -69,7 +94,7 @@ instance World (Map Key Node) Key Player where
 
   getDesc k g = M.lookup k g >>= return . description
 
-  setDesc k d g = update g $ do
+  setDesc k d = \g -> update g $ do
     n <- M.lookup k g
     let n' = n { description = d }
     return $ M.insert k n' g
@@ -87,29 +112,14 @@ instance World (Map Key Node) Key Player where
     let n' = n { edges = M.delete d $ edges n }
     return $ M.insert k n' g
 
-  getClient k g = M.lookup k g >>= client
-  setClient k c g = update g $ do
-    n <- M.lookup k g
-    let n' = n { client = Just c }
-    return $ M.insert k n' g
-
-  unsetClient k g = update g $ do
-    n <- M.lookup k g
-    let n' = n { client = Nothing }
-    return $ M.insert k n' g
-
   getObjs = M.keys
   hasObj k = M.member k
 
   addObj k g = if M.member k g
-    then (False, g)
-    else let n = mkNode { name = k } in (True, M.insert k n g)
+                 then (g, False)
+                 else let n = mkNode { name = k } in (M.insert k n g, True)
 
   mkWorld = M.fromList []
 
-  -- TODO: make this better. it probably doesn't _need_ to be a pure function.
-  delObj k w = let resp = (True, M.delete k w)
-    in case getClient k w of
-      Nothing -> resp
-      Just c -> unsafePerformIO $ kill c >> return resp
+  delObj k w = (M.delete k w, True)
 

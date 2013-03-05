@@ -24,7 +24,7 @@ startConsole opts tmw = do
                       mapM_ putStrLn cs
     ("broadcast":ss) -> do let ks = getObjs w
                                msg = unwords ss
-                           mapM_ (\k -> notifyObj k msg w) ks
+                           mapM_ (\k -> notify k msg w) ks
 
     ["quit"] -> exitSuccess
     ["exit"] -> exitSuccess

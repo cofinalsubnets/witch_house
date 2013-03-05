@@ -1,16 +1,11 @@
 module Gretel.Interface.Types
 ( Command
 , CommandMap
-, Notification(..)
 ) where
 
 import Data.Map (Map)
-import Gretel.World (WorldTransformer)
+import Gretel.World
 
-type Command = String -> [String] -> WorldTransformer [Notification]
+type Command = String -> [String] -> World -> IO World
 type CommandMap = Map String Command
-
-data Notification = Notify { target  :: String
-                           , message :: String
-                           } deriving (Show,Eq)
 

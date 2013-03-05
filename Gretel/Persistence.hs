@@ -59,14 +59,14 @@ loadWorld file = do
   disconnect conn
 
   let addNode [n,d,l] = do let n' = fromSql n
-                           addObj' n'
-                           setDesc' n' (fromSql d)
+                           _ <- WS $ addObj n'
+                           _ <- WS $ setDesc n' (fromSql d)
                            case fromSql l of
                              Nothing -> return True
-                             Just l' -> setLoc' n' l'
+                             Just l' -> WS $ setLoc n' l'
 
       addEdge [orig,dir,dest] = do let orig' = fromSql orig
-                                   addExit' orig' (fromSql dir) (fromSql dest)
+                                   WS $ adjoins orig' (fromSql dir) (fromSql dest)
 
       addNodes = mconcat $ map addNode ns
       addEdges = mconcat $ map addEdge es
