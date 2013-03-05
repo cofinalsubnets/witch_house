@@ -23,6 +23,5 @@ data Options = Options { portNo     :: Int
                        , world      :: World
                        , logHandle  :: Handle
                        , verbosity  :: Verbosity
-                       , console    :: Bool
                        }
 

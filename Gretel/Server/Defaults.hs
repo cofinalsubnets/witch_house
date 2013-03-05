@@ -11,7 +11,6 @@ defaults = Options { portNo = 10101
                    , world = defaultWorld
                    , logHandle = stderr
                    , verbosity = V1
-                   , console = False
                    }
 
 defaultWorld :: World

@@ -39,9 +39,6 @@ handleArgs args = do
                   , Option "V" ["verbosity"]
                     (ReqArg setVerbosity "N")
                       "verbosity of log messages"
-                  , Option [] ["console"]
-                    (NoArg setConsole)
-                      "enable console after startup"
                   ]
 
         vn = putStrLn $ "Gretel " ++ showVersion version
@@ -60,10 +57,6 @@ handleArgs args = do
         setPortNo n o = do
           opt <- o
           return $ opt { portNo = read n }
-
-        setConsole o = do
-          opt <- o
-          return $ opt { console = True }
 
         setVerbosity n o = do
           opt <- o

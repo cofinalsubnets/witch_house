@@ -10,18 +10,11 @@ import Gretel.World
 import Gretel.Interface
 import Gretel.Server.Types
 import Gretel.Server.Log
-import Gretel.Server.Console
-import Gretel.Version
 
 startServer :: Options -> IO ()
 startServer opts = do
   tmw <- atomically $ newTMVar (world opts)
-  if not $ console opts
-    then server opts tmw
-    else do _ <- forkIO $ server opts tmw
-            putStrLn $ "Gretel " ++ showVersion version
-            putStrLn "Starting console..."
-            startConsole opts tmw
+  server opts tmw
 
 -- | Accept connections on the designated port. Fork off a thread to
 -- handle requests for each incoming connection.
