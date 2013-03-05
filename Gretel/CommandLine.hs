@@ -9,6 +9,7 @@ import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import Gretel.Server.Types
 import Gretel.Server.Defaults
 import Gretel.Version
+import Gretel.Persistence
 import System.IO
 
 -- | Parse command line arguments.
@@ -18,27 +19,39 @@ handleArgs args = do
   case getOpt Permute options args of
     (o,[],[]) -> foldr ($) (return defaults) o
     (_,_,_) -> exitFailure
-  where options = [ Option "c" ["cores"]
+  where options = [ Option "" ["cores"]
                     (ReqArg setCores "N")
                       "maximum number of processor cores to use"
                   , Option "h" ["help"]
                     (NoArg (\_ -> usage >> exitSuccess))
                       "print this message and exit"
-                  , Option "l" ["log-file"]
+                  , Option "" ["log-file"]
                     (ReqArg setLogFile "FILE")
                       "log file (default logs to STDERR)"
                   , Option "p" ["port"]
                     (ReqArg setPortNo "PORT")
                       "local port to listen on (default is 10101)"
-                  , Option "q" ["quiet"]
+                  , Option "" ["quiet"]
                     (NoArg $ setVerbosity "0")
                       "suppress log (equivalent to verbosity 0)"
-                  , Option "v" ["version"]
+                  , Option "" ["version"]
                     (NoArg (\_ -> vn >> exitSuccess))
                       "print version and exit"
-                  , Option "V" ["verbosity"]
+                  , Option "v" ["verbosity"]
                     (ReqArg setVerbosity "N")
                       "verbosity of log messages"
+                  , Option "e" ["ephemeral"]
+                    (NoArg setEphemeral)
+                      "disable persistence"
+                  , Option "i" ["persistence-interval"]
+                    (ReqArg setInterval "N")
+                      "set persistence interval (default is every 20 requests)"
+                  , Option "f" ["persistence-file"]
+                    (ReqArg setDBFile "FILE")
+                      "set DB file (default is `gretel.db')"
+                  , Option "" ["load"]
+                    (ReqArg load "FILE")
+                      "load world from DB"
                   ]
 
         vn = putStrLn $ "Gretel " ++ showVersion version
@@ -48,6 +61,23 @@ handleArgs args = do
           c <- getNumCapabilities
           when (c /= n') $ setNumCapabilities n'
           o
+
+        setEphemeral o = do
+          opt <- o
+          return opt { persistent = False }
+
+        setInterval n o = do
+          opt <- o
+          return opt { interval = read n }
+
+        setDBFile f o = do
+          opt <- o
+          return opt { dbFile = f }
+
+        load f o = do
+          opt <- o
+          w <- loadWorld f
+          return opt { world = w }
 
         setLogFile f o = do
           opt <- o

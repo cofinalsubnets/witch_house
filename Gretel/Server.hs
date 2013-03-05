@@ -10,6 +10,7 @@ import Gretel.World
 import Gretel.Interface
 import Gretel.Server.Types
 import Gretel.Server.Log
+import Gretel.Persistence
 
 data Request = Login String Handle ThreadId |
                Action String deriving Show
@@ -25,15 +26,16 @@ startServer opts = do
   let logM = logger (logHandle opts) "%H:%M:%S %z" (verbosity opts)
   logM V1 $ "Listening on port " ++ show (portNo opts) ++ "."
   _ <- forkIO $ listen sock q logM
-  respond (world opts) q
+  respond (world opts) (interval opts) opts q
 
 -- | Handle a request and update the world.
-respond :: World -> TBQueue Request -> IO ()
-respond w q = do
+respond :: World -> Int -> Options -> TBQueue Request -> IO ()
+respond w n opts q = do
+  when (persistent opts && n == 0) (dumpWorld w $ dbFile opts)
   req <- atomically $ readTBQueue q
   w' <- case req of Login _ _ _ -> login w req
                     Action s    -> parseCommand rootMap s w
-  respond w' q
+  respond w' (if n == 0 then (interval opts) else n-1) opts q
 
 -- | Handle a login request. The request will fail if someone is already
 -- logged in with the given name; otherwise, the client will be attached to

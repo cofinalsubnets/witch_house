@@ -11,6 +11,9 @@ defaults = Options { portNo = 10101
                    , world = defaultWorld
                    , logHandle = stderr
                    , verbosity = V1
+                   , persistent = True
+                   , interval = 20
+                   , dbFile = "./gretel.db"
                    }
 
 defaultWorld :: World

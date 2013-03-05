@@ -14,5 +14,8 @@ data Options = Options { portNo     :: Int
                        , world      :: World
                        , logHandle  :: Handle
                        , verbosity  :: Verbosity
+                       , persistent :: Bool
+                       , interval   :: Int
+                       , dbFile     :: FilePath
                        }
 

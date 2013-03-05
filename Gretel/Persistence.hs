@@ -1,5 +1,5 @@
 module Gretel.Persistence
-( createDB
+( loadWorld
 , dumpWorld
 ) where
 
@@ -26,27 +26,23 @@ getNodes = "SELECT * FROM `nodes`;"
 getEdges :: String
 getEdges = "SELECT * FROM `edges`;"
 
-connect :: FilePath -> IO Connection
-connect = connectSqlite3
-
-createDB :: FilePath -> IO ()
-createDB file = do
-  conn <- connectSqlite3 file
-  run conn createNodesTable []
-  run conn createEdgesTable []
-  commit conn
-  disconnect conn
-
 dumpWorld :: World -> FilePath -> IO ()
 dumpWorld w file = do
   conn <- connectSqlite3 file
+  tbls <- getTables conn
+  dropT <- prepare conn "DROP TABLE ?"
   insn <- prepare conn insertNode
   insx <- prepare conn insertEdge
+
+  mapM_ (\t -> execute dropT [toSql t]) tbls
+
+  _ <- run conn createNodesTable []
+  _ <- run conn createEdgesTable []
 
   let toObj o = (getName o w, getDesc o w, getLoc o w, getExits' o w)
       os = map toObj (getObjs w)
       dump (n,d,l,xs) = do let dx (dir,dest) = execute insx [toSql n, toSql dir, toSql dest]
-                           execute insn [toSql n, toSql d, toSql l]
+                           _ <- execute insn [toSql n, toSql d, toSql l]
                            mapM_ dx xs
   mapM_ dump os
   disconnect conn
@@ -58,15 +54,19 @@ loadWorld file = do
   es <- quickQuery' conn getEdges []
   disconnect conn
 
-  let addNode [n,d,l] = do let n' = fromSql n
-                           _ <- WS $ addObj n'
-                           _ <- WS $ setDesc n' (fromSql d)
-                           case fromSql l of
-                             Nothing -> return True
-                             Just l' -> WS $ setLoc n' l'
+  let addNode ar = case ar of
+        [n,d,l] -> do let n' = fromSql n
+                      _ <- WS $ addObj n'
+                      _ <- WS $ setDesc n' (fromSql d)
+                      case fromSql l of
+                        Nothing -> return True
+                        Just l' -> WS $ setLoc n' l'
+        _ -> return True
 
-      addEdge [orig,dir,dest] = do let orig' = fromSql orig
-                                   WS $ adjoins orig' (fromSql dir) (fromSql dest)
+      addEdge ar = case ar of
+        [orig,dir,dest] -> do let orig' = fromSql orig
+                              WS $ adjoins orig' (fromSql dir) (fromSql dest)
+        _ -> return True
 
       addNodes = mconcat $ map addNode ns
       addEdges = mconcat $ map addEdge es
