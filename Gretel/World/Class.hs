@@ -1,4 +1,4 @@
-{-# LANGUAGE Rank2Types, FunctionalDependencies, ExistentialQuantification #-}
+{-# LANGUAGE Rank2Types, FunctionalDependencies, ExistentialQuantification, FlexibleInstances #-}
 -- Defines the interface for the `world', the data structure that stores program state.
 -- The server should get and set attributes of the world using methods of the World
 -- typeclass.
@@ -57,6 +57,7 @@ module Gretel.World.Class
 ) where
 
 import Data.Maybe (fromJust)
+import Data.Monoid
 
 -- Convenience type for boolean (succeed or fail) transformers
 -- of world state.
@@ -70,6 +71,10 @@ instance Monad (WS w) where
   s >>= t = WS $ \w0 ->
     let (r1,w1) = runWorld s w0
     in runWorld (t r1) w1
+
+instance Monoid (WS w Bool) where
+  mempty = return True
+  mappend = (>>)
 
 -- | Run the monad with the given initial state, and return the `value' part
 -- of the result.
