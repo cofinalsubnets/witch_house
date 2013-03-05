@@ -30,14 +30,15 @@ dumpWorld :: World -> FilePath -> IO ()
 dumpWorld w file = do
   conn <- connectSqlite3 file
   tbls <- getTables conn
-  dropT <- prepare conn "DROP TABLE ?"
-  insn <- prepare conn insertNode
-  insx <- prepare conn insertEdge
-
-  mapM_ (\t -> execute dropT [toSql t]) tbls
+  mapM_ (\t -> run conn ("DROP TABLE "++t) []) tbls
 
   _ <- run conn createNodesTable []
   _ <- run conn createEdgesTable []
+
+  commit conn
+
+  insn <- prepare conn insertNode
+  insx <- prepare conn insertEdge
 
   let toObj o = (getName o w, getDesc o w, getLoc o w, getExits' o w)
       os = map toObj (getObjs w)
@@ -45,6 +46,7 @@ dumpWorld w file = do
                            _ <- execute insn [toSql n, toSql d, toSql l]
                            mapM_ dx xs
   mapM_ dump os
+  commit conn
   disconnect conn
 
 loadWorld :: FilePath -> IO World

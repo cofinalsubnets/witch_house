@@ -38,7 +38,7 @@ notify k msg w = case getClient k w of
   Just (Player h _) -> hPutStrLn h msg >> hFlush h
 
 kill :: Player -> IO ()
-kill (Player h t) = (forkIO $ hClose h >> killThread t) >> return ()
+kill (Player h _) = hClose h
 
 mkNode :: Node
 mkNode = Node { location    = Nothing

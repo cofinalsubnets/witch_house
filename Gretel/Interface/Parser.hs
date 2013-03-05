@@ -10,22 +10,22 @@ import qualified Data.Map as M
 
 -- | Given a command map and a raw input string, returns a
 -- world transformer.
-parseCommand :: CommandMap -> String -> World -> IO World
+parseCommand :: CommandMap -> String -> String -> World -> IO World
 parseCommand cm s = case tokenize s of
-  Just (n:c:args) -> mLookup c cm n args
-  _ -> \w -> do notify (head $ words s) "Huh?" w
-                return w
+  Just (c:args) -> mLookup c cm $ args
+  _ -> \_ w -> do notify (head $ words s) "Huh?" w
+                  return w
 
 
 mLookup :: String -> CommandMap -> Command
-mLookup k cm n = case M.lookup k cm of
-  Just c -> c n
+mLookup k cm = case M.lookup k cm of
+  Just c -> c
   Nothing -> case filter (isPrefixOf k) (M.keys cm) of
-    [m] -> cm M.! m $ n
-    [] -> \_ w -> do notify n ("I don't know what `"++k++"' means.") w
-                     return w
-    ms -> \_ w -> do notify n ("You could mean: " ++ show ms) w
-                     return w
+    [m] -> cm M.! m
+    [] -> \_ n w -> do notify n ("I don't know what `"++k++"' means.") w
+                       return w
+    ms -> \_ n w -> do notify n ("You could mean: " ++ show ms) w
+                       return w
   
 
 -- | TODO: Write tests for this. Make it generally suck less.
