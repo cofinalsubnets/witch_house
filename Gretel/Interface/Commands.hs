@@ -31,6 +31,7 @@ rootMap = M.fromList $
   , ("kill",      destroy  )
   , ("inventory", inventory)
   , ("whoami",    whoami   )
+  , ("quit",      quit     )
   ]
 
 notifyAll :: String -> String -> World -> IO ()
@@ -69,6 +70,11 @@ help n _ w = notify n helpMsg w >> return w
 huh :: String -> World -> IO World
 huh n w = notify n "Huh?" w >> return w
 
+quit :: Command
+quit n [] w = do notify n "Bye!" w
+                 dropClient n w
+quit n _ w = huh n w
+
 say :: Command
 say n s w = let msg = n ++ " says, \"" ++ unwords s ++ "\""
   in notifyAll (getLoc' n w) msg w >> return w
@@ -82,7 +88,9 @@ destroy n [t] w
  | not $ hasObj t w = notify n "You can't destroy what doesn't exist!" w >> return w
  | isNothing $ getLoc t w = notify n "You can't destroy the root of the world!" w >> return w
  | n == t = notify n "Don't destroy yourself. There's always another option!" w >> return w
- | otherwise = notify n (t ++ " has been destroyed.") w >> (return . fst $ delObj t w)
+ | otherwise = do w' <- dropClient t w
+                  notify n (t ++ " has been destroyed.") w'
+                  return . fst $ delObj t w'
 destroy n _ w = huh n w
 
 exits :: Command

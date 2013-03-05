@@ -1,20 +1,11 @@
 module Gretel.Server.Types
-( Req(..)
-, Verbosity(..)
+( Verbosity(..)
 , Options(..)
 ) where
 
 import System.IO (Handle)
 
 import Gretel.World
-
-data Req = Action { body   :: String
-                  , client :: String
-                  } |
-           Login { client  :: String
-                 , lHandle :: Handle
-                 } |
-           Logout String deriving (Show)
 
 data Verbosity = V0 | V1 | V2 deriving (Show, Eq, Enum, Ord)
 
