@@ -7,21 +7,35 @@ module Gretel.CommandLine
 ) where
 
 import System.Console.GetOpt
+import Data.Maybe (isNothing)
 import System.Exit (exitSuccess, exitFailure)
 import Control.Concurrent (setNumCapabilities)
+import System.Posix.User
+import System.Directory
 
-import Gretel.World
-import Gretel.Persistence (loadWorld)
+import Gretel.Persistence (Connection, connect)
 import System.IO
 
 import Data.Version
+
+gretelDir :: IO FilePath
+gretelDir = do
+  homeDir <- getEffectiveUserID >>= getUserEntryForID >>= return . homeDirectory
+  let dir = homeDir ++ "/.gretel"
+  createDirectoryIfMissing True dir
+  return dir
 
 -- | Parse command line arguments.
 -- TODO: Add usage. Possibly lift the Options transformers into IO.
 handleArgs :: [String] -> IO Options
 handleArgs args = do
   case getOpt Permute options args of
-    (o,[],[]) -> foldr ($) (return defaults) o
+    (o,[],[]) -> do let opts = foldr ($) (return defaults) o
+                    os <- opts
+                    if persistent os && isNothing (db os)
+                      then do gd <- gretelDir
+                              setDB (gd++"/gretel.db") opts
+                      else opts
     (_,_,_) -> usage >> exitFailure
   where options = [ Option "" ["cores"]
                     (ReqArg setCores "N")
@@ -51,11 +65,8 @@ handleArgs args = do
                     (ReqArg setInterval "N")
                       "set persistence interval (default is every 20 requests)"
                   , Option "f" ["persistence-file"]
-                    (ReqArg setDBFile "FILE")
+                    (ReqArg setDB "FILE")
                       "set DB file (default is `gretel.db')"
-                  , Option "" ["load"]
-                    (ReqArg load "FILE")
-                      "load world from DB"
                   ]
 
         vn = putStrLn $ "Gretel " ++ showVersion version
@@ -73,14 +84,10 @@ handleArgs args = do
           opt <- o
           return opt { interval = read n }
 
-        setDBFile f o = do
+        setDB f o = do
           opt <- o
-          return opt { dbFile = f }
-
-        load f o = do
-          opt <- o
-          w <- loadWorld f
-          return opt { world = w }
+          c <- connect f
+          return opt { db = Just c }
 
         setLogFile f o = do
           opt <- o
@@ -116,25 +123,20 @@ data Verbosity = V0 | V1 | V2 deriving (Show, Eq, Enum, Ord)
 
 data Options = Options { portNo     :: Int
                        , maxClients :: Int              -- not implemented
-                       , world      :: World
                        , logHandle  :: Handle
                        , verbosity  :: Verbosity
                        , persistent :: Bool
                        , interval   :: Int
-                       , dbFile     :: FilePath
+                       , db         :: Maybe Connection
                        }
 
 defaults :: Options
 defaults = Options { portNo = 10101
                    , maxClients = 10
-                   , world = defaultWorld
                    , logHandle = stderr
                    , verbosity = V1
                    , persistent = True
                    , interval = 20
-                   , dbFile = "./gretel.db"
+                   , db = Nothing
                    }
-
-defaultWorld :: World
-defaultWorld = set mkObject { name = "Root of the World", isRoot = True } mkWorld
 

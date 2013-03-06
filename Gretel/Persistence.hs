@@ -1,6 +1,9 @@
 module Gretel.Persistence
 ( loadWorld
-, dumpWorld
+, saveWorld
+, connect
+, defaultWorld
+, Connection
 ) where
 
 import Database.HDBC
@@ -26,9 +29,12 @@ getNodes = "SELECT * FROM `nodes`;"
 getEdges :: String
 getEdges = "SELECT * FROM `edges`;"
 
-dumpWorld :: World -> FilePath -> IO ()
-dumpWorld w file = do
-  conn <- connectSqlite3 file
+
+connect :: FilePath -> IO Connection
+connect = connectSqlite3
+
+saveWorld :: World -> Connection -> IO ()
+saveWorld w conn = do
   tbls <- getTables conn
   mapM_ (\t -> run conn ("DROP TABLE "++t) []) tbls
 
@@ -45,32 +51,42 @@ dumpWorld w file = do
                                           mapM_ dx (M.toList xs)
   mapM_ dump $ elems w
   commit conn
-  disconnect conn
 
-loadWorld :: FilePath -> IO World
-loadWorld file = do 
-  conn <- connectSqlite3 file
-  ns <- quickQuery' conn getNodes []
-  es <- quickQuery' conn getEdges []
-  disconnect conn
 
-  let addNode ar = case ar of
-        [n,d,l,p,r] -> let o = mkObject { name        = fromSql n
-                                        , description = fromSql d
-                                        , location    = fromSql l
-                                        , password    = fromSql p
-                                        , isRoot      = fromSql r
-                                        }
-                   in set o
-        _ -> id
+defaultWorld :: World
+defaultWorld = set mkObject { name = "Root of the World", isRoot = True } mkWorld
 
-      addEdge ar = case ar of
-        [orig,dir,dest] -> \w -> let obj = get' (fromSql orig) w
-                                 in set obj { exits = M.insert (fromSql dir) (fromSql dest) (exits obj) } w
-        _ -> id
+loadWorld :: Connection -> IO World
+loadWorld conn = do 
+  tbls <- getTables conn
+  if null tbls
 
-      withNodes = foldr ($) mkWorld (map addNode ns)
-      withEdges = foldr ($) withNodes (map addEdge es)
-  
-  return withEdges
+    then do putStr "Creating DB... "
+            saveWorld defaultWorld conn
+            putStrLn "done!"
+            return defaultWorld
+
+    else do
+      ns <- quickQuery' conn getNodes []
+      es <- quickQuery' conn getEdges []
+
+      let addNode ar = case ar of
+            [n,d,l,p,r] -> let o = mkObject { name        = fromSql n
+                                            , description = fromSql d
+                                            , location    = fromSql l
+                                            , password    = fromSql p
+                                            , isRoot      = fromSql r
+                                            }
+                       in set o
+            _ -> id
+
+          addEdge ar = case ar of
+            [orig,dir,dest] -> \w -> let obj = get' (fromSql orig) w
+                                     in set obj { exits = M.insert (fromSql dir) (fromSql dest) (exits obj) } w
+            _ -> id
+
+          withNodes = foldr ($) mkWorld (map addNode ns)
+          withEdges = foldr ($) withNodes (map addEdge es)
+      
+      return withEdges
 
