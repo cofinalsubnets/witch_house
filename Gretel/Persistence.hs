@@ -9,13 +9,13 @@ import Gretel.World
 import qualified Data.Map as M
 
 createNodesTable :: String
-createNodesTable = "CREATE TABLE `nodes` (`name` VARCHAR(255) PRIMARY KEY NOT NULL, `description` TEXT NOT NULL, `location` VARCHAR(255), FOREIGN KEY (`location`) REFERENCES `nodes` (`name`), CHECK (`name` <> `location`));"
+createNodesTable = "CREATE TABLE `nodes` (`name` VARCHAR(255) PRIMARY KEY NOT NULL, `description` TEXT NOT NULL, `location` VARCHAR(255), `password` VARCHAR(255) FOREIGN KEY (`location`) REFERENCES `nodes` (`name`), CHECK (`name` <> `location`));"
 
 createEdgesTable :: String
 createEdgesTable = "CREATE TABLE `edges` (`origin` VARCHAR(255) NOT NULL, `direction` VARCHAR(255) NOT NULL, `destination` VARCHAR(255) NOT NULL, PRIMARY KEY (`origin`,`direction`), FOREIGN KEY (`origin`) REFERENCES `nodes` (`name`), FOREIGN KEY (`destination`) REFERENCES `nodes` (`name`));"
 
 insertNode :: String
-insertNode = "INSERT INTO `nodes` VALUES (?,?,?);" -- name, description, location
+insertNode = "INSERT INTO `nodes` VALUES (?,?,?,?);" -- name, description, location, password
 
 insertEdge :: String
 insertEdge = "INSERT INTO `edges` VALUES (?,?,?);" -- origin, direction, destination
@@ -40,9 +40,9 @@ dumpWorld w file = do
   insn <- prepare conn insertNode
   insx <- prepare conn insertEdge
 
-  let dump (Object n d l xs _) = do let dx (dir,dest) = execute insx [toSql n, toSql dir, toSql dest]
-                                    _ <- execute insn [toSql n, toSql d, toSql l]
-                                    mapM_ dx (M.toList xs)
+  let dump (Object n d l xs _ _ _ pw) = do let dx (dir,dest) = execute insx [toSql n, toSql dir, toSql dest]
+                                           _ <- execute insn [toSql n, toSql d, toSql l, toSql pw]
+                                           mapM_ dx (M.toList xs)
   mapM_ dump $ elems w
   commit conn
   disconnect conn
@@ -55,10 +55,11 @@ loadWorld file = do
   disconnect conn
 
   let addNode ar = case ar of
-        [n,d,l] -> let o = mkObject { name = fromSql n
-                                    , description = fromSql d
-                                    , location = fromSql l
-                                    }
+        [n,d,l,p] -> let o = mkObject { name        = fromSql n
+                                      , description = fromSql d
+                                      , location    = fromSql l
+                                      , password    = fromSql p
+                                      }
                    in set o
         _ -> id
 

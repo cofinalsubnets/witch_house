@@ -1,4 +1,4 @@
-module Gretel.Interface.Commands (rootMap) where
+module Gretel.Interface.Commands (storyMap, rootMap) where
 
 import Prelude hiding (take, drop)
 import Data.Maybe (fromMaybe, fromJust, isJust)
@@ -7,27 +7,31 @@ import Gretel.Interface.Types
 import qualified Data.Map as M
 import Data.List hiding (take, drop)
 
-rootMap :: CommandMap
-rootMap = M.fromList $
+storyMap :: CommandMap
+storyMap = M.fromList $
   [ ("go",        go       )
   , ("take",      take     )
   , ("look",      look     )
-  , ("make",      make     )
   , ("drop",      drop     )
-  , ("link",      link     )
-  , ("unlink",    unlink   )
-  , ("enter",     enter    )
-  , ("exit",      exit     )
-  , ("describe",  describe )
   , ("examine",   examine  )
   , ("exits",     cExits   )
   , ("say",       say      )
   , ("/me",       me       )
   , ("help",      help     )
-  , ("kill",      destroy  )
   , ("inventory", inventory)
   , ("whoami",    whoami   )
   , ("quit",      quit     )
+  ]
+
+rootMap :: CommandMap
+rootMap = M.union storyMap . M.fromList $
+  [ ("make",      make     )
+  , ("link",      link     )
+  , ("unlink",    unlink   )
+  , ("enter",     enter    )
+  , ("exit",      exit     )
+  , ("describe",  describe )
+  , ("kill",      destroy  )
   ]
 
 notifyAll :: String -> String -> World -> IO ()

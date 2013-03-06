@@ -2,6 +2,8 @@ module Gretel.CommandLine
 ( handleArgs
 , Verbosity(..)
 , Options(..)
+, version
+, showVersion
 ) where
 
 import System.Console.GetOpt

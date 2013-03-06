@@ -6,10 +6,12 @@ import Control.Concurrent.STM
 import Network
 import System.IO
 import System.Exit
+import Data.Maybe (isJust)
+import Data.List (intercalate)
 
 import Gretel.World
 import Gretel.Interface
-import Gretel.CommandLine
+import Gretel.CommandLine (Options(..), Verbosity(..), version, showVersion)
 import Gretel.Server.Log
 import Gretel.Persistence
 
@@ -66,30 +68,70 @@ session h tmw pq = do
       atomically $ writeTQueue pq w'
       atomically $ putTMVar tmw w'
 
+connectMsg :: String
+connectMsg = "Gretel " ++ (showVersion version)
+
+welcomeMsg :: Object -> World -> String
+welcomeMsg o w = intercalate "\n" $
+  [ "Welcome, " ++ name o ++ "."
+  , (show . length . filter (isJust . client ) $ elems w) ++ " user(s) are currently online."
+  ]
+
 -- | Handle a login request. The request will fail if someone is already
 -- logged in with the given name; otherwise, the client will be attached to
 -- the object with the given name (one will be created if it doesn't exist).
 login :: Handle -> TMVar World -> IO (Maybe String)
 login h tmw = do
   -- login
-  hPutStr h "What's yr name?? "
+  hPutStrLn h connectMsg
+  hPutStr h "Name: "
   hFlush h
+
   n <- hGetLine h
-  w <- atomically $ takeTMVar tmw
+  w <- atomically $ readTMVar tmw
 
-  case get n w >>= client of
-    Nothing -> do hPutStrLn h $ "Hiya " ++ n ++ "!"
-                  hFlush h
-                  t <- myThreadId
-                  let c = Client h t
-                      w' = if n `member` w
-                             then let o = get' n w in set o { client = Just $ c } w
-                             else add mkObject { client = Just c , name = n } w
-                  atomically $ putTMVar tmw w'
-                  return $ Just n
+  case get n w of
+    Just o -> case password o of
+      Just pw -> do hPutStr h "Password: "
+                    hFlush h
+                    p <- hGetLine h
+                    if p == pw
+                      then loginExisting o
+                      else loginFailure "Incorrect password."
+      Nothing -> loginExisting o
 
-    Just _ -> do hPutStrLn h $ "Someone is already logged in as " ++ n ++". Please try again with a different handle."
-                 hClose h
-                 atomically $ putTMVar tmw w
-                 return Nothing
+    Nothing -> loginNew n
+
+  where
+
+    loginFailure s = do hPutStrLn h s
+                        hClose h
+                        return Nothing
+
+    loginExisting o = do t  <- myThreadId
+                         w' <- atomically $ takeTMVar tmw
+                         let w'' = set o { client = Just $ Client h t } w'
+                         atomically $ putTMVar tmw w''
+                         hPutStrLn h $ welcomeMsg o w''
+                         hFlush h
+                         return $ Just (name o)
+
+    loginNew s = do hPutStrLn h $ "Creating new node for " ++ s ++ "."
+                    hFlush h
+                    hPutStr h "Password: "
+                    hFlush h
+                    pw <- hGetLine h
+                    t  <- myThreadId
+                    w' <- atomically $ takeTMVar tmw
+
+                    let o = mkObject { name = s
+                                     , client = Just $ Client h t
+                                     , password = Just pw
+                                     }
+                        w'' = add o w'
+
+                    atomically . putTMVar tmw $ w''
+                    hPutStrLn h $ welcomeMsg o w''
+                    hFlush h
+                    return $ Just s
 

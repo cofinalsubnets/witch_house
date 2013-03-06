@@ -1,6 +1,7 @@
 module Gretel.World
 ( Object(..)
 , Client(..)
+, Properties(..)
 , World
 , WT
 , Key
@@ -47,7 +48,20 @@ data Object = Object { name        :: Key
                      , location    :: Maybe Key
                      , exits       :: Map String Key
                      , client      :: Maybe Client
+                     , properties  :: Properties
+                     , behaviour   :: Behaviour -- unimplemented
+                     , password    :: Maybe String
                      } deriving (Show,Eq)
+
+data Properties = Properties { integer :: Map String Int
+                             , text    :: Map String String
+                             , boolean :: Map String Bool
+                             } deriving (Show,Eq)
+
+type Behaviour = ()
+
+mkProperties :: Properties
+mkProperties = Properties (M.fromList []) (M.fromList []) (M.fromList [])
 
 data Client = Client { handle :: Handle
                      , thread :: ThreadId
@@ -70,6 +84,9 @@ mkObject = Object { location    = Nothing
                   , name        = ""
                   , description = ""
                   , client      = Nothing
+                  , properties  = mkProperties
+                  , behaviour   = ()
+                  , password    = Nothing
                   }
 
 -- | retrieve an object from the world
