@@ -6,7 +6,7 @@ module Gretel.Persistence
 import Database.HDBC
 import Database.HDBC.Sqlite3
 import Gretel.World
-import Data.Monoid
+import qualified Data.Map as M
 
 createNodesTable :: String
 createNodesTable = "CREATE TABLE `nodes` (`name` VARCHAR(255) PRIMARY KEY NOT NULL, `description` TEXT NOT NULL, `location` VARCHAR(255), FOREIGN KEY (`location`) REFERENCES `nodes` (`name`), CHECK (`name` <> `location`));"
@@ -40,12 +40,10 @@ dumpWorld w file = do
   insn <- prepare conn insertNode
   insx <- prepare conn insertEdge
 
-  let toObj o = (getName o w, getDesc o w, getLoc o w, getExits' o w)
-      os = map toObj (getObjs w)
-      dump (n,d,l,xs) = do let dx (dir,dest) = execute insx [toSql n, toSql dir, toSql dest]
-                           _ <- execute insn [toSql n, toSql d, toSql l]
-                           mapM_ dx xs
-  mapM_ dump os
+  let dump (Object n d l xs _) = do let dx (dir,dest) = execute insx [toSql n, toSql dir, toSql dest]
+                                    _ <- execute insn [toSql n, toSql d, toSql l]
+                                    mapM_ dx (M.toList xs)
+  mapM_ dump $ elems w
   commit conn
   disconnect conn
 
@@ -57,22 +55,20 @@ loadWorld file = do
   disconnect conn
 
   let addNode ar = case ar of
-        [n,d,l] -> do let n' = fromSql n
-                      _ <- WS $ addObj n'
-                      _ <- WS $ setDesc n' (fromSql d)
-                      case fromSql l of
-                        Nothing -> return True
-                        Just l' -> WS $ setLoc n' l'
-        _ -> return True
+        [n,d,l] -> let o = mkObject { name = fromSql n
+                                    , description = fromSql d
+                                    , location = fromSql l
+                                    }
+                   in set o
+        _ -> id
 
       addEdge ar = case ar of
-        [orig,dir,dest] -> do let orig' = fromSql orig
-                              WS $ adjoins orig' (fromSql dir) (fromSql dest)
-        _ -> return True
+        [orig,dir,dest] -> \w -> let obj = get' (fromSql orig) w
+                                 in set obj { exits = M.insert (fromSql dir) (fromSql dest) (exits obj) } w
+        _ -> id
 
-      addNodes = mconcat $ map addNode ns
-      addEdges = mconcat $ map addEdge es
-      w = mkWorld
+      withNodes = foldr ($) mkWorld (map addNode ns)
+      withEdges = foldr ($) withNodes (map addEdge es)
   
-  return $ execWorld (addNodes >> addEdges) w
+  return withEdges
 

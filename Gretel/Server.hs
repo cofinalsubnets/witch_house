@@ -77,18 +77,14 @@ login h tmw = do
   n <- hGetLine h
   w <- atomically $ takeTMVar tmw
 
-  case getClient n w of
+  case get n w >>= client of
     Nothing -> do hPutStrLn h $ "Hiya " ++ n ++ "!"
                   hFlush h
                   t <- myThreadId
-                  let c = Player h t
-                      w' = if hasObj n w
-                             then execWorld (WS $ setClient n c) w
-                             else let ws = WS (addObj n) >>
-                                           -- TODO: set initial location in a sane way. this is totally arbitrary.
-                                           WS (setLoc n "Root of the World") >>
-                                           WS (setClient n c)
-                                  in execWorld ws w
+                  let c = Client h t
+                      w' = if n `member` w
+                             then let o = get' n w in set o { client = Just $ c } w
+                             else add mkObject { client = Just c , name = n } w
                   atomically $ putTMVar tmw w'
                   return $ Just n
 

@@ -5,7 +5,7 @@ module Gretel.Interface.Commands
 ) where
 
 import Prelude hiding (take, drop)
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (fromMaybe, fromJust, isJust)
 import Gretel.World
 import Gretel.Interface.Types
 import qualified Data.Map as M
@@ -24,7 +24,7 @@ rootMap = M.fromList $
   , ("exit",      exit     )
   , ("describe",  describe )
   , ("examine",   examine  )
-  , ("exits",     exits    )
+  , ("exits",     cExits   )
   , ("say",       say      )
   , ("/me",       me       )
   , ("help",      help     )
@@ -35,10 +35,10 @@ rootMap = M.fromList $
   ]
 
 notifyAll :: String -> String -> World -> IO ()
-notifyAll r msg w = mapM_ (\n -> notify n msg w) $ contents' r w
+notifyAll r msg w = mapM_ (\n -> notify n msg w) $ contents r w
 
 notifyAllBut :: String -> String -> String -> World -> IO ()
-notifyAllBut n r msg w = mapM_ (\p -> notify p msg w) $ filter (n/=) $ contents' r w
+notifyAllBut n r msg w = mapM_ (\p -> notify p msg w) $ filter (n/=) $ contents r w
 
 help :: Command
 help _ n w = notify n helpMsg w >> return w
@@ -70,36 +70,36 @@ huh n w = notify n "Huh?" w >> return w
 
 quit :: Command
 quit [] n w = do notify n "Bye!" w
-                 dropClient n w
+                 let o = get' n w
+                 kill . fromJust $ client o
+                 return $ set o { client = Nothing } w
 quit _ n w = huh n w
 
 say :: Command
 say s n w = let msg = n ++ " says, \"" ++ unwords s ++ "\""
-  in notifyAll (getLoc' n w) msg w >> return w
+  in notifyAll (getLoc n w) msg w >> return w
 
 me :: Command
 me s n w = let msg = n ++ " " ++ unwords s
-  in notifyAll (getLoc' n w) msg w >> return w
+  in notifyAll (getLoc n w) msg w >> return w
 
 destroy :: Command
 destroy [t] n w
- | not $ hasObj t w = notify n "You can't destroy what doesn't exist!" w >> return w
- | isNothing $ getLoc t w = notify n "That would destroy the universe." w >> return w
- | isJust $ getClient t w = notify n ("You can't kill "++t++".") w >> return w
- | otherwise = do w' <- dropClient t w
-                  notify n (t ++ " has been destroyed.") w'
-                  return . fst $ delObj t w'
+ | not $ member t w = notify n "You can't destroy what doesn't exist!" w >> return w
+ | t == name (root w) = notify n "That would destroy the universe." w >> return w
+ | isJust . client $ get' t w = notify n ("You can't kill "++t++".") w >> return w
+ | otherwise = notify n (t ++ " has been destroyed.") w >> del t w
 destroy _ n w = huh n w
 
-exits :: Command
-exits [] n w = let es = map fst $ exitsFor' n w
-                   ms = "The following exits are available:":es
-                   msg = intercalate "\n" ms
+cExits :: Command
+cExits [] n w = let es = map fst $ (M.toList . fromJust $ exitsFor n w)
+                    ms = "The following exits are available:":es
+                    msg = intercalate "\n" ms
   in notify n msg w >> return w
-exits _ n w = huh n w
+cExits _ n w = huh n w
 
 inventory :: Command
-inventory [] n w = let cs = contents' n w
+inventory [] n w = let cs = contents n w
   in notify n (unlines cs) w >> return w
 inventory _ n w = huh n w
 
@@ -110,9 +110,9 @@ whoami _ n w = huh n w
 go :: Command
 go [dir] n w = case n `goes` dir $ w of
   (w', False) -> notify n "You can't go that way!" w' >> return w'
-  (w', True) -> do notify n (desc (getLoc' n w') w' [n]) w'
-                   notifyAllBut n (getLoc' n w') (n++" arrives from "++ (getLoc' n w) ++ ".") w'
-                   notifyAllBut n (getLoc' n w) (n++" goes "++dir++".") w'
+  (w', True) -> do notify n (desc (getLoc n w') w' [n]) w'
+                   notifyAllBut n (getLoc n w') (n++" arrives from "++ (getLoc n w) ++ ".") w'
+                   notifyAllBut n (getLoc n w) (n++" goes "++dir++".") w'
                    return w'
 
 go [] n w = notify n "Go where?" w >> return w
@@ -129,7 +129,7 @@ take [t] n w = case n `takes` t $ w of
   (w', False) -> notify n ("There's no " ++ t ++ " here.") w' >> return w'
 
   (w', True) -> do notify n ("You now have a " ++ t ++ ".") w'
-                   notifyAllBut n (getLoc' n w') (n ++ " picks up " ++ t) w'
+                   notifyAllBut n (getLoc n w') (n ++ " picks up " ++ t) w'
                    return  w'
 
 take [] n w = notify n "Take what?" w >> return w
@@ -138,19 +138,19 @@ take _ n w = huh n w
 exit :: Command
 exit [] n w = case n `leaves` orig $ w of
   (w', False) -> notify n "You can't exit your current location." w' >> return w'
-  (w', True)  -> let dest = getLoc' n w'
+  (w', True)  -> let dest = getLoc n w'
                 in do notify n (desc dest w [n]) w'
                       notifyAllBut n dest (n++" arrives from "++orig++".") w'
                       notifyAllBut n orig (n++" exits to "++dest++".") w'
                       return w'
-  where orig = getLoc' n w
+  where orig = getLoc n w
                  
 exit _ n w = huh n w
 
 look :: Command
-look [] n w = notify n (desc (getLoc' n w) w [n]) w >> return w
-look [dir] n w = let loc = getLoc' n w
-                     txt = do d <- dir `from` loc $ w
+look [] n w = notify n (desc (getLoc n w) w [n]) w >> return w
+look [dir] n w = let 
+                     txt = do d <- M.lookup dir (fromJust $ exitsFor n w)
                               return $ desc d w []
                      msg = fromMaybe "You don't see anything in that direction." txt
   in notify n msg w >> return w
@@ -160,7 +160,7 @@ make :: Command
 make [o] n w = case n `makes` o $ w of
   (w', False)  -> notify n (o ++ " already exists!") w' >> return w'
   (w', True) -> do notify n ("You've created " ++ o ++ ".") w'
-                   notifyAllBut n (getLoc' n w') (n++" creates "++o++".") w'
+                   notifyAllBut n (getLoc n w') (n++" creates "++o++".") w'
                    return w'
 make _ n w = huh n w
 
@@ -168,8 +168,8 @@ enter :: Command
 enter [o] n w = case n `enters` o $ w of
   (w', False) -> do notify n ("You can't enter "++o++".") w'
                     return w'
-  (w', True)  -> let ol = getLoc' n w
-                     nl = getLoc' n w'
+  (w', True)  -> let ol = getLoc n w
+                     nl = getLoc n w'
     in do notify n (desc nl w' [n]) w'
           notifyAllBut n nl (n++" enters from "++ol++".") w'
           notifyAllBut n ol (n++" enters "++o++".") w'
@@ -181,7 +181,7 @@ drop :: Command
 drop [o] n w = case n `drops` o $ w of
   (w', False) -> notify n "You can't drop what you don't have!" w' >> return w'
   (w', True)  -> do notify n ("You drop " ++ o ++ ".") w'
-                    notifyAllBut n (getLoc' n w') (n++" drops "++o++".") w'
+                    notifyAllBut n (getLoc n w') (n++" drops "++o++".") w'
                     return w'
 drop _ n w = huh n w
 
@@ -199,7 +199,7 @@ describe _ n w = huh n w
 
 examine :: Command
 examine [t] n w
-  | hasObj n w && hasObj t w = if getLoc n w == getLoc t w
+  | n `member` w && t `member` w = if location (get' n w) == location (get' t w)
     then notify n (desc t w []) w >> return w
     else notify n ("You see no "++t++" here.") w >> return w
   | otherwise = huh n w
@@ -209,13 +209,19 @@ examine _ n w = huh n w
 -- helper fns
 
 desc :: String -> World -> [String] -> String
-desc n w xs = let cs = contents' n w \\ xs
+desc n w xs = let o = get' n w
+                  cs = contents n w \\ xs
                   ps = map (++ " is here.") cs
-                  dv = replicate (length $ getName' n w) '-'
+                  dv = replicate (length $ name o) '-'
   in intercalate "\n" . delete "" $
     [ n
     , dv
-    , getDesc' n w
+    , description o
     , dv
     ] ++ ps
+
+getLoc :: Key -> World -> String
+getLoc n = fromJust . location . get' n
+
+
 
