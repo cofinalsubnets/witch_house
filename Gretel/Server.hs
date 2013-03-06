@@ -6,6 +6,7 @@ import Control.Concurrent.STM
 import Network
 import System.IO
 import System.Exit
+import System.Timeout
 import Data.Maybe (isJust)
 import Data.List (intercalate)
 
@@ -56,15 +57,16 @@ listen sock tmw pq logM = do
 -- message queue.
 session :: Handle -> TMVar World -> TQueue World -> IO ()
 session h tmw pq = do
-  li <- login h tmw
-  case li of
+  li <- timeout 60000000 $ login h tmw
+  case join li of
     Nothing -> return ()
     Just n  -> forever $ do
       stop <- hIsClosed h
       when stop exitSuccess
-      c  <- hGetLine h
+      c  <- timeout 600000000 $ hGetLine h
       w  <- atomically $ takeTMVar tmw
-      w' <- parseCommand rootMap c n w
+      w' <- case c of Nothing -> parseCommand rootMap "quit" n w
+                      Just c' -> parseCommand rootMap c' n w
       atomically $ writeTQueue pq w'
       atomically $ putTMVar tmw w'
 
