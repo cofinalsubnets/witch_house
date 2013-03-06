@@ -55,6 +55,7 @@ listen sock tmw pq logM = do
   forever $ do
     (h,hn,p') <- accept sock
     hSetBuffering h LineBuffering
+    hSetNewlineMode h universalNewlineMode
     logM V1 $ concat ["Connected: ", hn, ":", show p']
     -- Start the user session.
     forkFinally (session h tmw pq) (\_ -> logM V1 $ concat ["Disconnected: ", hn, ":", show p'])
