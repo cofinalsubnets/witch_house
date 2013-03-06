@@ -9,9 +9,10 @@ import System.Exit (exitSuccess, exitFailure)
 import Control.Concurrent (setNumCapabilities)
 
 import Gretel.World
-import Gretel.Version
 import Gretel.Persistence (loadWorld)
 import System.IO
+
+import Data.Version
 
 -- | Parse command line arguments.
 -- TODO: Add usage. Possibly lift the Options transformers into IO.
@@ -106,6 +107,8 @@ handleArgs args = do
           let header = "Usage: gretel [OPTIONS...]"
           putStrLn $ usageInfo header options
 
+version :: Version
+version = Version [0,0,0] ["pre-pre-alpha"]
 
 data Verbosity = V0 | V1 | V2 deriving (Show, Eq, Enum, Ord)
 
