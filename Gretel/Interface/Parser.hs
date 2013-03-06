@@ -8,8 +8,8 @@ import Data.Char
 import Data.List (isPrefixOf)
 import qualified Data.Map as M
 
--- | Given a command map and a raw input string, returns a
--- world transformer.
+-- | Parse an input string into a command using the given
+-- command map.
 parseCommand :: CommandMap -> String -> String -> World -> IO World
 parseCommand cm s = case tokenize s of
   Just (c:args) -> mLookup c cm $ args

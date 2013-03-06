@@ -9,7 +9,7 @@ import System.Exit
 
 import Gretel.World
 import Gretel.Interface
-import Gretel.Server.Types
+import Gretel.CommandLine
 import Gretel.Server.Log
 import Gretel.Persistence
 

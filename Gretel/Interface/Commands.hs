@@ -1,8 +1,4 @@
-{-# LANGUAGE TupleSections #-}
-module Gretel.Interface.Commands
-( rootMap
-, huh
-) where
+module Gretel.Interface.Commands (rootMap) where
 
 import Prelude hiding (take, drop)
 import Data.Maybe (fromMaybe, fromJust, isJust)
@@ -222,6 +218,4 @@ desc n w xs = let o = get' n w
 
 getLoc :: Key -> World -> String
 getLoc n = fromJust . location . get' n
-
-
 

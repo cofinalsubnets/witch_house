@@ -1,15 +1,16 @@
-{-# LANGUAGE BangPatterns #-}
-module Gretel.CommandLine (handleArgs) where
+module Gretel.CommandLine
+( handleArgs
+, Verbosity(..)
+, Options(..)
+) where
 
 import System.Console.GetOpt
-import System.Exit
-import Control.Monad (when)
-import GHC.Conc (getNumCapabilities, setNumCapabilities)
+import System.Exit (exitSuccess, exitFailure)
+import Control.Concurrent (setNumCapabilities)
 
-import Gretel.Server.Types
-import Gretel.Server.Defaults
+import Gretel.World
 import Gretel.Version
-import Gretel.Persistence
+import Gretel.Persistence (loadWorld)
 import System.IO
 
 -- | Parse command line arguments.
@@ -18,7 +19,7 @@ handleArgs :: [String] -> IO Options
 handleArgs args = do
   case getOpt Permute options args of
     (o,[],[]) -> foldr ($) (return defaults) o
-    (_,_,_) -> exitFailure
+    (_,_,_) -> usage >> exitFailure
   where options = [ Option "" ["cores"]
                     (ReqArg setCores "N")
                       "maximum number of processor cores to use"
@@ -58,8 +59,7 @@ handleArgs args = do
 
         setCores n o = do
           let n' = read n
-          c <- getNumCapabilities
-          when (c /= n') $ setNumCapabilities n'
+          setNumCapabilities n'
           o
 
         setEphemeral o = do
@@ -105,4 +105,31 @@ handleArgs args = do
         usage = do
           let header = "Usage: gretel [OPTIONS...]"
           putStrLn $ usageInfo header options
+
+
+data Verbosity = V0 | V1 | V2 deriving (Show, Eq, Enum, Ord)
+
+data Options = Options { portNo     :: Int
+                       , maxClients :: Int              -- not implemented
+                       , world      :: World
+                       , logHandle  :: Handle
+                       , verbosity  :: Verbosity
+                       , persistent :: Bool
+                       , interval   :: Int
+                       , dbFile     :: FilePath
+                       }
+
+defaults :: Options
+defaults = Options { portNo = 10101
+                   , maxClients = 10
+                   , world = defaultWorld
+                   , logHandle = stderr
+                   , verbosity = V1
+                   , persistent = True
+                   , interval = 20
+                   , dbFile = "./gretel.db"
+                   }
+
+defaultWorld :: World
+defaultWorld = set mkObject { name = "Root of the World" } mkWorld
 

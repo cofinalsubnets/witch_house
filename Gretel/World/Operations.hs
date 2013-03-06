@@ -1,4 +1,3 @@
-{-# LANGUAGE Rank2Types, FlexibleContexts #-}
 -- | Aggregates and exports functions for interacting with the world.
 module Gretel.World.Operations
 ( makes

@@ -1,7 +1,7 @@
 module Gretel.Server.Log (logger) where
 
 import Data.Time
-import Gretel.Server.Types
+import Gretel.CommandLine (Verbosity)
 import System.IO
 import System.Locale (defaultTimeLocale)
 import Control.Monad (when)
