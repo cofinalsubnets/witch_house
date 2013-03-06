@@ -138,7 +138,7 @@ takes :: Key -> Key -> WT
 k1 `takes` k2 = \w -> update w $ do
   o1 <- get k1 w
   o2 <- get k2 w
-  if location o1 == location o2
+  if location o1 == location o2 && name o1 /= name o2
     then return $ set o2 { location = Just k1 } w
     else Nothing
 
