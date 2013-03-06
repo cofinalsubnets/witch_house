@@ -136,5 +136,5 @@ defaults = Options { portNo = 10101
                    }
 
 defaultWorld :: World
-defaultWorld = set mkObject { name = "Root of the World" } mkWorld
+defaultWorld = set mkObject { name = "Root of the World", isRoot = True } mkWorld
 

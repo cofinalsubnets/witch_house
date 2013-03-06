@@ -1,7 +1,6 @@
 module Gretel.World
 ( Object(..)
 , Client(..)
-, Properties(..)
 , World
 , WT
 , Key
@@ -34,7 +33,6 @@ module Gretel.World
 import System.IO
 import Control.Concurrent
 import Control.Monad (when)
-import Data.Maybe (isNothing)
 import Data.Map (Map)
 import qualified Data.Map as M
 
@@ -48,20 +46,9 @@ data Object = Object { name        :: Key
                      , location    :: Maybe Key
                      , exits       :: Map String Key
                      , client      :: Maybe Client
-                     , properties  :: Properties
-                     , behaviour   :: Behaviour -- unimplemented
                      , password    :: Maybe String
+                     , isRoot      :: Bool
                      } deriving (Show,Eq)
-
-data Properties = Properties { integer :: Map String Int
-                             , text    :: Map String String
-                             , boolean :: Map String Bool
-                             } deriving (Show,Eq)
-
-type Behaviour = ()
-
-mkProperties :: Properties
-mkProperties = Properties (M.fromList []) (M.fromList []) (M.fromList [])
 
 data Client = Client { handle :: Handle
                      , thread :: ThreadId
@@ -84,9 +71,8 @@ mkObject = Object { location    = Nothing
                   , name        = ""
                   , description = ""
                   , client      = Nothing
-                  , properties  = mkProperties
-                  , behaviour   = ()
                   , password    = Nothing
+                  , isRoot      = False
                   }
 
 -- | retrieve an object from the world
@@ -113,7 +99,7 @@ add :: Object -> World -> World
 add o w = set o { location = Just . name $ root w } w
 
 root :: World -> Object
-root = head . filter (isNothing . location) . M.elems
+root = head . filter isRoot . M.elems
 
 -- | Creates a new object, using the location of the first
 -- argument as the initial location. The first argument is
