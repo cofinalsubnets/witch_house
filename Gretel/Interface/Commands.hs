@@ -3,9 +3,10 @@ module Gretel.Interface.Commands (storyMap, rootMap) where
 import Prelude hiding (take, drop)
 import Data.Maybe (fromMaybe, fromJust, isJust)
 import Gretel.World
-import Gretel.Interface.Types
+import Gretel.Interface.Base
 import qualified Data.Map as M
 import Data.List hiding (take, drop)
+import System.IO (hClose)
 
 storyMap :: CommandMap
 storyMap = M.fromList $
@@ -33,6 +34,11 @@ rootMap = M.union storyMap . M.fromList $
   , ("describe",  describe )
   , ("kill",      destroy  )
   ]
+
+
+killClient :: Object -> IO ()
+killClient o = case client o of Nothing -> return ()
+                                Just h  -> hClose h
 
 notifyAll :: String -> String -> World -> IO World
 notifyAll r msg w = foldl1 (>>) $ map (\k -> notify k msg w) (contents r w)
@@ -71,7 +77,7 @@ huh n = notify n "Huh?"
 quit :: Command
 quit [] n w = do _ <- notify n "Bye!" w
                  let o = get' n w
-                 kill . fromJust $ client o
+                 killClient o
                  return $ set o { client = Nothing } w
 quit _ n w = huh n w
 

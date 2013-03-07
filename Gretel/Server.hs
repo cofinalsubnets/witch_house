@@ -117,9 +117,8 @@ login h tmw = do
                         hClose h
                         return Nothing
 
-    loginExisting o = do t  <- myThreadId
-                         w' <- atomically $ takeTMVar tmw
-                         let w'' = set o { client = Just $ Client h t } w'
+    loginExisting o = do w' <- atomically $ takeTMVar tmw
+                         let w'' = set o { client = Just h } w'
                          atomically $ putTMVar tmw w''
                          hPutStrLn h $ welcomeMsg o w''
                          hFlush h
@@ -130,11 +129,10 @@ login h tmw = do
                     hPutStr h "Password: "
                     hFlush h
                     pw <- hGetLine h
-                    t  <- myThreadId
                     w' <- atomically $ takeTMVar tmw
 
                     let o = mkObject { name = s
-                                     , client = Just $ Client h t
+                                     , client = Just h
                                      , password = Just pw
                                      }
                         w'' = add o w'

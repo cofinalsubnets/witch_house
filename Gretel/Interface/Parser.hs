@@ -3,7 +3,7 @@ module Gretel.Interface.Parser
 ) where
 
 import Gretel.World
-import Gretel.Interface.Types
+import Gretel.Interface.Base
 import Data.Char
 import Data.List (isPrefixOf)
 import qualified Data.Map as M
