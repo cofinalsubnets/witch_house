@@ -14,17 +14,19 @@ import Gretel.World
 import Gretel.Interface
 import Gretel.CommandLine (Options(..), Verbosity(..), version, showVersion)
 import Gretel.Server.Log
-import Gretel.Persistence
+--import Gretel.Persistence
+import Control.Exception (bracket)
 
 type Logger = Verbosity -> String -> IO ()
 
+defaultWorld :: World
+defaultWorld = set mkObject { name = "Root of the World", isRoot = True } mkWorld
+
+
 startServer :: Options -> IO ()
 startServer opts = do
-  w <- case db opts of
-         Nothing -> return defaultWorld
-         Just c -> loadWorld c
 
-  tmw <- atomically $ newTMVar w
+  tmw <- atomically $ newTMVar defaultWorld
   pq  <- atomically $ newTQueue
   sock <- listenOn $ PortNumber (fromIntegral . portNo $ opts)
 
@@ -32,9 +34,10 @@ startServer opts = do
   let logM = logger (logHandle opts) "%H:%M:%S %z" (verbosity opts)
   logM V1 $ "Listening on port " ++ show (portNo opts) ++ "."
 
-  _ <- forkIO $ persist (interval opts) (db opts) pq
+--  _ <- forkIO $ persist (interval opts) (db opts) pq
   listen sock tmw pq logM
 
+{-
 persist :: Int -> Maybe Connection -> TQueue World -> IO ()
 persist i c q = loop 0
   where loop n = do w <- atomically $ readTQueue q
@@ -43,6 +46,7 @@ persist i c q = loop 0
                                         Just c' -> saveWorld w c'
                               loop 0
                       else loop (n+1)
+                        -}
                  
 
 -- | Listen on the given socket and spawn off threads to handle clients.
@@ -63,7 +67,7 @@ listen sock tmw pq logM = do
 -- | Log in a client and forward their requests to the responder via the
 -- message queue.
 session :: Handle -> TMVar World -> TQueue World -> IO ()
-session h tmw pq = do
+session h tmw _ = do
   li <- timeout 60000000 $ login h tmw -- 1 min. timeout for login
   case join li of
     Nothing -> return ()
@@ -71,11 +75,12 @@ session h tmw pq = do
       stop <- hIsClosed h
       when stop exitSuccess
       c  <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
-      w  <- atomically $ takeTMVar tmw
-      w' <- case c of Nothing -> parseCommand rootMap "quit" n w
-                      Just c' -> parseCommand rootMap c' n w
-      atomically $ writeTQueue pq w'
-      atomically $ putTMVar tmw w'
+      bracket (atomically $ takeTMVar tmw) (\w -> atomically $ putTMVar tmw w) (handleCommand n c)
+    where
+      handleCommand n c w = case c of Nothing -> parseCommand rootMap "quit" n w
+                                      Just "" -> return w
+                                      Just c' -> parseCommand rootMap c' n w
+
 
 connectMsg :: String
 connectMsg = "Gretel " ++ (showVersion version)
