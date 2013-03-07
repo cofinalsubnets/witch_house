@@ -52,12 +52,12 @@ data Client = Client { handle :: Handle
                      , thread :: ThreadId
                      } deriving (Show,Eq)
 
-notify :: Key -> String -> World -> IO ()
+notify :: Key -> String -> World -> IO World
 notify k msg w = case get k w of
-  Left _ -> return ()
+  Left _ -> return w
   Right o -> case client o of
-    Nothing -> return ()
-    Just (Client h _) -> hPutStrLn h msg >> hFlush h
+    Nothing -> return w
+    Just (Client h _) -> hPutStrLn h msg >> hFlush h >> return w
 
 kill :: Client -> IO ()
 kill = hClose . handle

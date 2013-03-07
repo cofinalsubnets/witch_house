@@ -13,8 +13,7 @@ import qualified Data.Map as M
 parseCommand :: CommandMap -> String -> String -> World -> IO World
 parseCommand cm s = case tokenize s of
   Just (c:args) -> mLookup c cm $ args
-  _ -> \_ w -> do notify (head $ words s) "Huh?" w
-                  return w
+  _ -> \_ w -> notify (head $ words s) "Huh?" w
 
 
 mLookup :: String -> CommandMap -> Command
@@ -22,10 +21,8 @@ mLookup k cm = case M.lookup k cm of
   Just c -> c
   Nothing -> case filter (isPrefixOf k) (M.keys cm) of
     [m] -> cm M.! m
-    [] -> \_ n w -> do notify n ("I don't know what `"++k++"' means.") w
-                       return w
-    ms -> \_ n w -> do notify n ("You could mean: " ++ show ms) w
-                       return w
+    [] -> \_ n w -> notify n ("I don't know what `"++k++"' means.") w
+    ms -> \_ n w -> notify n ("You could mean: " ++ show ms) w
   
 
 -- | TODO: Write tests for this. Make it generally suck less.

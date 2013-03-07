@@ -34,14 +34,14 @@ rootMap = M.union storyMap . M.fromList $
   , ("kill",      destroy  )
   ]
 
-notifyAll :: String -> String -> World -> IO ()
-notifyAll r msg w = mapM_ (\n -> notify n msg w) $ contents r w
+notifyAll :: String -> String -> World -> IO World
+notifyAll r msg w = foldl1 (>>) $ map (\k -> notify k msg w) (contents r w)
 
-notifyAllBut :: String -> String -> String -> World -> IO ()
-notifyAllBut n r msg w = mapM_ (\p -> notify p msg w) $ filter (n/=) $ contents r w
+notifyAllBut :: String -> String -> String -> World -> IO World
+notifyAllBut n r msg w = foldl1 (>>) $ map (\k -> notify k msg w) $ filter (n/=) (contents r w)
 
 help :: Command
-help _ n w = notify n helpMsg w >> return w
+help _ n w = notify n helpMsg w
   where
     helpMsg = unlines $
       [ "A superset of these commands is available:"
@@ -66,10 +66,10 @@ help _ n w = notify n helpMsg w >> return w
       ]
 
 huh :: String -> World -> IO World
-huh n w = notify n "Huh?" w >> return w
+huh n = notify n "Huh?"
 
 quit :: Command
-quit [] n w = do notify n "Bye!" w
+quit [] n w = do _ <- notify n "Bye!" w
                  let o = get' n w
                  kill . fromJust $ client o
                  return $ set o { client = Nothing } w
@@ -77,21 +77,18 @@ quit _ n w = huh n w
 
 say :: Command
 say s n w = let msg = "\"" ++ unwords s ++ "\""
-  in do notify n ("You say, "++msg) w
-        notifyAllBut n (getLoc n w) (n++" says, "++msg) w
-        return w
+  in notify n ("You say, "++msg) w >>= notifyAllBut n (getLoc n w) (n++" says, "++msg)
 
 me :: Command
 me s n w = let msg = unwords (n:s)
-  in do notifyAll (getLoc n w) msg w
-        return w
+  in notifyAll (getLoc n w) msg w
 
 destroy :: Command
 destroy [t] n w
- | not $ member t w = notify n "You can't destroy what doesn't exist!" w >> return w
- | t == name (root w) = notify n "That would destroy the universe." w >> return w
- | isJust . client $ get' t w = notify n ("You can't kill "++t++".") w >> return w
- | otherwise = notify n (t ++ " has been destroyed.") w >> del t w
+ | not $ member t w = notify n "You can't destroy what doesn't exist!" w
+ | t == name (root w) = notify n "That would destroy the universe." w
+ | isJust . client $ get' t w = notify n ("You can't kill "++t++".") w
+ | otherwise = notify n (t ++ " has been destroyed.") w >>= del t
 destroy _ n w = huh n w
 
 cExits :: Command
@@ -99,115 +96,110 @@ cExits [] n w = let es = case exitsFor n w of Left err -> error $ "cExits: looku
                                               Right m -> map fst . M.toList $ m
                     ms = "The following exits are available:":es
                     msg = intercalate "\n" ms
-  in notify n msg w >> return w
+  in notify n msg w
 cExits _ n w = huh n w
 
 inventory :: Command
 inventory [] n w = let cs = contents n w
-  in notify n (unlines cs) w >> return w
+  in notify n (unlines cs) w
 inventory _ n w = huh n w
 
 whoami :: Command
-whoami [] n w = notify n n w >> return w
+whoami [] n w = notify n n w
 whoami _ n w = huh n w
 
 go :: Command
 go [dir] n w = case n `goes` dir $ w of
-  Left err -> notify n err w >> return w
-  Right w' -> do notify n (desc (getLoc n w') w' [n]) w'
-                 notifyAllBut n (getLoc n w') (n++" arrives from "++ (getLoc n w) ++ ".") w'
-                 notifyAllBut n (getLoc n w) (n++" goes "++dir++".") w'
-                 return w'
+  Left err -> notify n err w
+  Right w' -> notify n (desc (getLoc n w') w' [n]) w' >>=
+              notifyAllBut n (getLoc n w') (n++" arrives from "++ (getLoc n w) ++ ".") >>=
+              notifyAllBut n (getLoc n w) (n++" goes "++dir++".")
 
-go [] n w = notify n "Go where?" w >> return w
+go [] n w = notify n "Go where?" w
 go _ n w = huh n w
 
 unlink :: Command
 unlink [n,dir] _ w = case n `deadends` dir $ w of
-  Left err  -> notify n err w >> return w
-  Right w'  -> notify n "Done." w' >> return w'
+  Left err  -> notify n err w
+  Right w'  -> notify n "Done." w'
 unlink _ n w = huh n w
 
 take :: Command
 take [t] n w = case n `takes` t $ w of
-  Left err -> notify n err w >> return w
+  Left err -> notify n err w
 
-  Right w' -> do notify n ("You now have a " ++ t ++ ".") w'
-                 notifyAllBut n (getLoc n w') (n ++ " picks up " ++ t) w'
-                 return  w'
+  Right w' -> notify n ("You now have a " ++ t ++ ".") w' >>=
+              notifyAllBut n (getLoc n w') (n ++ " picks up " ++ t)
 
-take [] n w = notify n "Take what?" w >> return w
+take [] n w = notify n "Take what?" w
 take _ n w = huh n w
 
 exit :: Command
 exit [] n w = case n `leaves` orig $ w of
-  Left err  -> notify n err w >> return w
+  Left err  -> notify n err w
   Right w'  -> let dest = getLoc n w'
-               in do notify n (desc dest w [n]) w'
-                     notifyAllBut n dest (n++" arrives from "++orig++".") w'
-                     notifyAllBut n orig (n++" exits to "++dest++".") w'
-                     return w'
+               in notify n (desc dest w [n]) w' >>=
+                  notifyAllBut n dest (n++" arrives from "++orig++".") >>=
+                  notifyAllBut n orig (n++" exits to "++dest++".")
   where orig = getLoc n w
                  
 exit _ n w = huh n w
 
 look :: Command
-look [] n w = notify n (desc (getLoc n w) w [n]) w >> return w
+look [] n w = notify n (desc (getLoc n w) w [n]) w
 look [dir] n w = let xs = case exitsFor n w of Left err -> error $ "look: lookup failed: " ++ err
                                                Right m -> m
                      txt = do d <- M.lookup dir xs
                               return $ desc d w []
                      msg = fromMaybe "You don't see anything in that direction." txt
-  in notify n msg w >> return w
+  in notify n msg w
 look _ n w  = huh n w
 
 make :: Command
 make [o] n w = case n `makes` o $ w of
-  Left err -> notify n err w >> return w
-  Right w' -> do notify n ("You've created " ++ o ++ ".") w'
-                 notifyAllBut n (getLoc n w') (n++" creates "++o++".") w'
-                 return w'
+  Left err -> notify n err w
+  Right w' -> notify n ("You've created " ++ o ++ ".") w' >>=
+              notifyAllBut n (getLoc n w') (n++" creates "++o++".")
 make _ n w = huh n w
 
 enter :: Command
 enter [o] n w = case n `enters` o $ w of
-  Left err -> notify n err w >> return w
+  Left err -> notify n err w
   Right w'  -> let ol = getLoc n w
                    nl = getLoc n w'
-    in do notify n (desc nl w' [n]) w'
-          notifyAllBut n nl (n++" enters from "++ol++".") w'
-          notifyAllBut n ol (n++" enters "++o++".") w'
-          return w'
-enter [] n w = notify n "Enter where?" w >> return w
+    in notify n (desc nl w' [n]) w' >>=
+       notifyAllBut n nl (n++" enters from "++ol++".") >>=
+       notifyAllBut n ol (n++" enters "++o++".")
+
+enter [] n w = notify n "Enter where?" w
 enter _ n w = huh n w
 
 drop :: Command
 drop [o] n w = case n `drops` o $ w of
-  Left err  -> notify n err w >> return w
-  Right w'  -> do notify n ("You drop " ++ o ++ ".") w'
-                  notifyAllBut n (getLoc n w') (n++" drops "++o++".") w'
-                  return w'
+  Left err  -> notify n err w
+  Right w'  -> notify n ("You drop " ++ o ++ ".") w' >>=
+               notifyAllBut n (getLoc n w') (n++" drops "++o++".")
 drop _ n w = huh n w
 
 link :: Command
 link [n1,n2,d] n w = case (n1 `adjoins` n2) d w of
-  Left err  -> notify n err w >> return w
-  Right w'  -> notify n "Done." w' >> return w'
+  Left err  -> notify n err w
+  Right w'  -> notify n "Done." w'
 link _ n w = huh n w
 
 describe :: Command
 describe [o,d] n w = case (d `describes` o) w of
-  Left err -> notify n err w >> return w
-  Right w' -> notify n "Done." w' >> return w'
+  Left err -> notify n err w
+  Right w' -> notify n "Done." w'
 describe _ n w = huh n w
 
 examine :: Command
 examine [t] n w
   | n `member` w && t `member` w = if location (get' n w) == location (get' t w)
-    then notify n (desc t w []) w >> return w
-    else notify n ("You see no "++t++" here.") w >> return w
+    then notify n (desc t w []) w
+    else notify n ("You see no "++t++" here.") w
   | otherwise = huh n w
-examine [] n w = notify n "Examine what?" w >> return w
+examine [] n w = notify n "Examine what?" w
 examine _ n w = huh n w
 
 -- helper fns
