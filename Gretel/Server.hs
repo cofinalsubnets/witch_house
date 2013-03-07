@@ -15,7 +15,7 @@ import Gretel.Interface
 import Gretel.CommandLine (Options(..), Verbosity(..), version, showVersion)
 import Gretel.Server.Log
 --import Gretel.Persistence
-import Control.Exception (bracket)
+import Control.Exception (try, SomeException)
 
 type Logger = Verbosity -> String -> IO ()
 
@@ -75,7 +75,11 @@ session h tmw _ = do
       stop <- hIsClosed h
       when stop exitSuccess
       c  <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
-      bracket (atomically $ takeTMVar tmw) (\w -> atomically $ putTMVar tmw w) (handleCommand n c)
+      w <- atomically $ takeTMVar tmw
+      res <- try $ handleCommand n c w :: IO (Either SomeException World)
+      atomically . putTMVar tmw $ case res of Left _   -> w
+                                              Right w' -> w'
+
     where
       handleCommand n c w = case c of Nothing -> parseCommand rootMap "quit" n w
                                       Just "" -> return w
