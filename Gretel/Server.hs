@@ -100,7 +100,7 @@ login h tmw = do
   w <- atomically $ readTMVar tmw
 
   case get n w of
-    Just o -> case password o of
+    Right o -> case password o of
       Just pw -> do hPutStr h "Password: "
                     hFlush h
                     p <- hGetLine h
@@ -109,7 +109,7 @@ login h tmw = do
                       else loginFailure "Incorrect password."
       Nothing -> loginExisting o
 
-    Nothing -> loginNew n
+    Left _ -> loginNew n
 
   where
 

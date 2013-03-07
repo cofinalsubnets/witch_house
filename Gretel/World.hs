@@ -2,7 +2,6 @@ module Gretel.World
 ( Object(..)
 , Client(..)
 , World
-, WT
 , Key
 , get
 , get'
@@ -32,13 +31,12 @@ module Gretel.World
 
 import System.IO
 import Control.Concurrent
-import Control.Monad (when)
 import Data.Map (Map)
 import qualified Data.Map as M
 
 type Key = String
 type World = Map Key Object
-type WT = World -> (World, Bool)
+type WorldTransformer = World -> Either String World
 
 -- | for object state
 data Object = Object { name        :: Key
@@ -55,9 +53,11 @@ data Client = Client { handle :: Handle
                      } deriving (Show,Eq)
 
 notify :: Key -> String -> World -> IO ()
-notify k msg w = case get k w >>= client of
-  Nothing -> return ()
-  Just (Client h _) -> hPutStrLn h msg >> hFlush h
+notify k msg w = case get k w of
+  Left _ -> return ()
+  Right o -> case client o of
+    Nothing -> return ()
+    Just (Client h _) -> hPutStrLn h msg >> hFlush h
 
 kill :: Client -> IO ()
 kill = hClose . handle
@@ -76,100 +76,104 @@ mkObject = Object { location    = Nothing
                   }
 
 -- | retrieve an object from the world
-get :: Key -> World -> Maybe Object
-get = M.lookup
+get :: Key -> World -> Either String Object
+get k w = case M.lookup k w of
+  Nothing -> Left $ "There's no such thing as " ++ k
+  Just o  -> Right o
 
 get' :: Key -> World -> Object
-get' = flip (M.!)
+get' k w = case get k w of
+  Right o -> o
+  Left  _ -> error "get' -- missing key"
 
 set :: Object -> World -> World
 set o = M.insert (name o) o
 
 del :: Key -> World -> IO World
 del k w = do
-  let cl = get k w >>= client
-  case cl of Nothing -> return $ M.delete k w
-             Just (Client h t) -> do
-               hClose h
-               mt <- myThreadId
-               when (mt /= t) (killThread t)
-               return $ M.delete k w
+  case get k w of
+    Left _ -> return w
+    Right o -> case client o of
+      Nothing -> return $ M.delete k w
+      Just (Client h _) -> do
+        hClose h
+        return $ M.delete k w
 
 add :: Object -> World -> World
 add o w = set o { location = Just . name $ root w } w
 
 root :: World -> Object
-root = head . filter isRoot . M.elems
+root w = case filter isRoot (M.elems w) of
+  []  -> error "root -- no root present"
+  r:_ -> r
 
 -- | Creates a new object, using the location of the first
 -- argument as the initial location. The first argument is
 -- intuitively the 'creator'; the second argument is the
 -- name of the created object.
-makes :: String -> String -> WT
-creator `makes` object = \w ->
-  if not $ M.member creator w
-    then (w, False)
-    else let o = mkObject { location = Just (name $ root w)
-                          , name = object
-                          }
-         in (set o w, True)
+makes :: String -> String -> WorldTransformer
+creator `makes` object = \w -> do
+  _ <- get creator w -- abort if creator doesn't exist
+  let o = mkObject { location = Just (name $ root w)
+                   , name = object
+                   }
+  return $ set o w
 
-exitsFor :: Key -> World -> Maybe (Map String Key)
+exitsFor :: Key -> World -> Either String (Map String Key)
 exitsFor n w = do obj  <- get n w
-                  loc  <- location obj
-                  loc' <- get loc w
-                  return $ exits loc'
+                  case location obj of
+                    Nothing -> Left $ n ++ " is nowhere in particular."
+                    Just l -> get l w >>= return . exits
 
 contents :: Key -> World -> [Key]
 contents k w = [ name c | c <- M.elems w, location c == Just k ]
 
-update :: World -> Maybe World -> (World, Bool)
-update w mw = case mw of Nothing -> (w, False)
-                         Just w' -> (w', True)
-
-goes :: Key -> String -> WT
-n `goes` dir = \w -> update w $ do
+goes :: Key -> String -> WorldTransformer
+n `goes` dir = \w -> do
   o <- get n w
-  xs <- exitsFor n w
-  dest <- M.lookup dir xs
-  return $ set o { location = Just dest } w
+  let xs = exits o
+      dest = M.lookup dir xs
+  case dest of Nothing -> Left $ "You can't go "++dir++"."
+               Just d  -> do _ <- get d w -- fail if destination doesn't exist
+                             return $ set o { location = dest } w
 
-takes :: Key -> Key -> WT
-k1 `takes` k2 = \w -> update w $ do
+takes :: Key -> Key -> WorldTransformer
+k1 `takes` k2 = \w -> do
   o1 <- get k1 w
   o2 <- get k2 w
-  if location o1 == location o2 && name o1 /= name o2
-    then return $ set o2 { location = Just k1 } w
-    else Nothing
+  if o1 == o2
+    then Left "You can't take yourself!"
+    else if location o1 == location o2
+      then return $ set o2 { location = Just k1 } w
+      else Left $ "There is no "++k2++" here."
 
-enters :: Key -> Key -> WT
+enters :: Key -> Key -> WorldTransformer
 k1 `enters` k2 = k2 `takes` k1
 
-drops :: Key -> Key -> WT
-k1 `drops` k2 = \w -> update w $ do
+drops :: Key -> Key -> WorldTransformer
+k1 `drops` k2 = \w -> do
   o1 <- get k1 w
   o2 <- get k2 w
-  _ <- location o1 -- the root can't drop things
   if location o2 == Just k1
     then return $ set o2 { location = location o1 } w
-    else Nothing
+    else Left "You can't drop what you don't have."
 
-leaves :: Key -> Key -> WT
+leaves :: Key -> Key -> WorldTransformer
 k1 `leaves` k2 = k2 `drops` k1
 
-adjoins :: Key -> Key -> String -> WT
-k1 `adjoins` k2 = \d w -> update w $ do
+adjoins :: Key -> Key -> String -> WorldTransformer
+k1 `adjoins` k2 = \d w -> do
   o1 <- get k1 w
   _ <- get k2 w
   return $ set o1 { exits = M.insert d k2 (exits o1) } w
 
-deadends :: Key -> String -> WT
-k `deadends` dir = \w -> update w $ do
+deadends :: Key -> String -> WorldTransformer
+k `deadends` dir = \w -> do
   o <- get k w
   return $ set o { exits = M.delete dir (exits o) } w
 
-describes :: String -> Key -> WT
-desc `describes` k = \w -> update w $ do
+describes :: String -> Key -> WorldTransformer
+desc `describes` k = \w -> do
   o <- get k w
   return $ set o { description = desc } w
 
