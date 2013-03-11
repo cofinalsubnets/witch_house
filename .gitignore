@@ -1,5 +1,5 @@
 *.hi
 *.o
-gretel
-gretel.db
+*.db
+witch_house
 

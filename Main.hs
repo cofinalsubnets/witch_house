@@ -1,8 +1,8 @@
 module Main where
 
 import System.Environment (getArgs)
-import Gretel.CommandLine (handleArgs)
-import Gretel.Server
+import WitchHouse.Invocation (handleArgs)
+import WitchHouse.Server
 
 -- | Startup goes like this:
 -- 1. Parse command line arguments.
