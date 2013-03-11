@@ -19,6 +19,7 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Char
 import System.IO
+import Control.Monad ((>=>))
 
 
 type Command = [String] -> WIO
@@ -102,7 +103,7 @@ help _ = notify helpMsg
       ]
 
 whoami :: Command
-whoami [] = (name.focus) >>= notify
+whoami [] = name . focus >>= notify
 whoami _ = huh
 
 listExits :: Command
@@ -122,6 +123,7 @@ use [t] w = case find (matchName t) Location w of
   Right w' -> (execute . action . focus) w' $ w
 use _ w = huh w
 
+-- | VERY unfinished.
 bind :: Command
 bind (t:msg) w = case find (matchName t) Location w of
   Left err -> notify err w
@@ -130,13 +132,13 @@ bind (t:msg) w = case find (matchName t) Location w of
 bind _ w = huh w
 
 takes :: Command
-takes [n] = notifyResult (take $ matchName n) $
-            \w -> notify ("You now have "++n++".") w >>= notifyExcept ((name.focus) w ++ " takes " ++ n ++ ".")
+takes [n] = notifyResult (take $ matchName n) $ 
+            notify ("You now have "++n++".") >=> ((++" takes "++n++".") . name . focus >>= notifyExcept)
 takes _ = huh
 
 drops :: Command
 drops [n] = notifyResult (\w -> drop (matchName n) w >>= find (focus w==) Global) $
-            \w -> notify ("You drop "++n++".") w >>= notifyExcept ((name.focus) w ++ " drops " ++ n ++ ".")
+            notify ("You drop "++n++".") >=> ((++" drops "++n++".") . name . focus >>= notifyExcept)
 drops _ = huh
 
 rename :: Command
@@ -159,19 +161,19 @@ quit [] (f,c) = case handle f of Nothing -> return (f,c)
 quit _ w = huh w
 
 goes :: Command
-goes [dir] = notifyResult (go dir) $ \w -> looks [] w >>= notifyExcept ((name.focus) w ++ " arrives.")
+goes [dir] = notifyResult (go dir) $ looks [] >=> ((++" arrives.") . name . focus >>= notifyExcept)
 goes _ = huh
 
 leaves :: Command
-leaves [] = notifyResult exit $ \w -> looks [] w >>= notifyExcept ((name.focus) w ++ " enters.")
+leaves [] = notifyResult exit $ looks [] >=> ((++" enters.") . name . focus >>= notifyExcept)
 leaves _ = huh
 
 enters :: Command
-enters [n] = notifyResult (enter $ matchName n) $ \w -> looks [] w >>= notifyExcept ((name.focus) w ++ " enters.")
+enters [n] = notifyResult (enter $ matchName n) $ looks [] >=> ((++"  enters.") . name . focus >>= notifyExcept)
 enters _ = huh
 
 makes :: Command
-makes [n] = \w -> make n w >>= notify ("You've made "++n)
+makes [n] = make n >=> notify ("You've made "++n)
 makes _ = huh
 
 looks :: Command
@@ -193,12 +195,12 @@ unlinks [dir] = notifyResult (\w -> zUp w >>= unlink dir >>= find (focus w==) Se
 unlinks _ = huh
 
 say :: Command
-say [] w = notify "Say what?" w
-say m w = let msg = unwords m in notify ("You say \""++msg++"\"") w >>= notifyExcept ((name.focus $ w) ++ " says \""++msg++"\"")
+say [] = notify "Say what?"
+say m = let msg = unwords m in notify ("You say \""++msg++"\"") >=> ((++" says \""++msg++"\"") . name . focus >>= notifyExcept)
 
 me :: Command
-me [] w = notify "What do you do?" w
-me m w = let msg = unwords $ ((name.focus) w):m in do notifyAll msg w
+me [] = notify "What do you do?"
+me m = let msg = unwords . (:m) . name . focus in (msg >>= notify) >=> (msg >>= notifyExcept)
 
 {- PARSING HELPERS -}
 
