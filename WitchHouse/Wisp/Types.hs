@@ -18,6 +18,7 @@ data Sval = Snum Int |
             Slist [Sval] |
             Sbool Bool |
             Sfunc [String] [Sval] Env |
+            Sform [String] [Sval] |
             Sprim ([Sval] -> Env -> (Either String Sval, Env))
 
 instance Show Sval where

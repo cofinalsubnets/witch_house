@@ -7,7 +7,7 @@ module WitchHouse.Persistence
 
 import Database.HDBC
 import Database.HDBC.Sqlite3
-import WitchHouse.World hiding (execute)
+import WitchHouse.World hiding (execute, run)
 import Data.Unique
 import qualified Data.Map as M
 import Data.Maybe
