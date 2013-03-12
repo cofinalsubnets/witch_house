@@ -18,6 +18,7 @@ import System.IO
 import WitchHouse.Types
 import WitchHouse.World
 import WitchHouse.Persistence
+import WitchHouse.Wisp (repl)
 
 data Options = Options { portNo       :: Int
                        , dbPath       :: FilePath
@@ -68,6 +69,9 @@ options = [ Option "" ["cores"]
           , Option "" ["quiet"]
             (NoArg $ setVerbosity "0")
               "disable logging"
+          , Option "" ["wisp"]
+            (NoArg (\_ -> repl >> exitSuccess))
+              "wisp REPL"
           ]
 
 vn :: IO ()

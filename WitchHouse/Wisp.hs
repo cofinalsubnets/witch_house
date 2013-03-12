@@ -1,26 +1,24 @@
+-- Wisp is a special-purpose Lisp for scripting object behaviour in witch_house.
 module WitchHouse.Wisp
 ( envLookup
 , runWisp
 , toplevelBindings
 , prim_apply
-
+, repl
 ) where
 
 import WitchHouse.Types
+
+import qualified Data.Map as M
+
+-- SRSLY consider whether we really want to do it like this.
+import System.IO
+import System.IO.Unsafe
 
 -- for the parser:
 import Text.ParserCombinators.Parsec
 import Control.Applicative hiding ((<|>), many)
 import Control.Monad
-
-import qualified Data.Map as M
-
-import System.IO
-import System.IO.Unsafe
-
-{- WISP
- - a scripting language for witch_house
- -}
 
 runWisp :: String -> Env -> (Either String Sval, Env)
 runWisp s e = case parseWisp s of Right sv -> eval' sv e
@@ -29,6 +27,19 @@ runWisp s e = case parseWisp s of Right sv -> eval' sv e
                        in case r of Right l@(Slist _) -> eval' l env'
                                     _ -> (r, env')
 
+repl :: IO ()
+repl = repl' toplevelBindings
+  where repl' bs = do putStr "\n>> "
+                      hFlush stdout
+                      l <- getLine
+                      case parse sexp "" l of
+                        Left err -> do putStr (show err)
+                                       repl' bs
+                        Right v -> do let (r,bs') = run (prim_eval v) bs
+                                      case r of Right r' -> putStr (show r')
+                                                Left err -> putStr ("error: " ++ err)
+                                      repl' bs'
+                                              
 {- PRIMITIVES -}
 
 prim_lambda :: Sval

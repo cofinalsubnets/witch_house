@@ -55,7 +55,6 @@ rootMap = M.fromList $
   , ("exits", listExits)
   , ("inventory", inventory)
   , ("@eval", oEval)
-  , ("use", use)
   ]
 
 {- NOTIFICATION HELPERS -}
@@ -106,16 +105,6 @@ help _ = notify helpMsg
 whoami :: Command
 whoami [] = name . focus >>= notify
 whoami _ = huh
-
-use :: Command
-use [t] w = case find (matchName t) (Distance 2) w of
-  Left err -> notify err w
-  Right w' -> case envLookup "use" (bindings . focus $ w') of
-                Nothing -> notify "You can't use that." w
-                Just fn -> case fst $ run (prim_apply fn [Sworld w]) (bindings . focus $ w') of
-                             Left err -> notify err w
-                             Right _ -> return w
-use _ w = huh w
 
 send :: Command
 send [actn,t] w = case find (matchName t) (Distance 2) w of
