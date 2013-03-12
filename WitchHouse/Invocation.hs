@@ -15,6 +15,7 @@ import System.Directory
 import Data.Version
 import System.IO
 
+import WitchHouse.Types
 import WitchHouse.World
 import WitchHouse.Persistence
 

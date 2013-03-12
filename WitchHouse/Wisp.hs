@@ -1,14 +1,26 @@
 module WitchHouse.Wisp
-( runWisp
+( envLookup
+, runWisp
 , toplevelBindings
+, prim_apply
+
 ) where
 
-import Data.Maybe
-import qualified Data.Map as M
-import Data.Monoid
+import WitchHouse.Types
 
-import WitchHouse.Wisp.Types
-import WitchHouse.Wisp.Parser
+-- for the parser:
+import Text.ParserCombinators.Parsec
+import Control.Applicative hiding ((<|>), many)
+import Control.Monad
+
+import qualified Data.Map as M
+
+import System.IO
+import System.IO.Unsafe
+
+{- WISP
+ - a scripting language for witch_house
+ -}
 
 runWisp :: String -> Env -> (Either String Sval, Env)
 runWisp s e = case parseWisp s of Right sv -> eval' sv e
@@ -42,6 +54,16 @@ fold_num op = Sprim $ \vs env ->
                  Left err -> Left err
   in (fmap Snum ret, env')
 
+prim_cat :: Sval
+prim_cat = Sprim $ \vs e ->
+  let (vs', _) = evalList vs e
+      ret = do vals <- vs'
+               case fst $ run (prim_apply stringp vals) e of
+                 Right (Sbool True) -> return . Sstring $ concatMap (\(Sstring s) -> s) vals
+                 Right _ -> Left $ "Bad type (expected strings)"
+                 Left err -> Left err
+  in (ret, e)
+
 prim_add :: Sval
 prim_add = fold_num (+)
 prim_sub :: Sval
@@ -51,6 +73,25 @@ prim_mul = fold_num (*)
 prim_div :: Sval
 prim_div = fold_num quot
 
+prim_eq :: Sval
+prim_eq = Sprim $ \vs e ->
+  let (vs',e') = evalList vs e
+      ret = do vals <- vs'
+               return $ Sbool . and . zipWith (==) vals $ drop 1 vals
+  in (ret,e')
+
+prim_notify :: Sval
+prim_notify = Sprim $ \vs e ->
+  case evalList vs e of
+    (Left err,_) -> (Left err, e)
+    (Right [Sworld (f,c), Sstring s], _) -> case handle f of
+      Nothing -> (Right (Sstring s), e)
+      Just h -> unsafePerformIO $ do hPutStrLn h s
+                                     hFlush h
+                                     return (Right (Sstring s), e)
+    (Right l,_) -> (Left $ "bad arguments: " ++ show l, e)
+
+
 prim_if :: Sval
 prim_if = Sprim $ \vs env ->
   case vs of
@@ -59,6 +100,16 @@ prim_if = Sprim $ \vs env ->
                    Right v' -> case v' of (Sbool False) -> run (prim_eval n) env
                                           _             -> run (prim_eval y) env
 
+
+prim_name :: Sval
+prim_name = Sprim $ \vs e ->
+  case evalList vs e of
+    (Left err, _) -> (Left err,e)
+    (Right [Sworld w],_) -> (return $ Sstring (name . fst $ w), e)
+    _ -> (Left "Bad type (expected world)", e)
+prim_desc :: Sval
+prim_desc = Sprim $ \vs e -> case vs of [Sworld w] -> (return $ Sstring (name . fst $ w), e)
+                                        _ -> (Left "Bad type (expected world)", e)
 
 -- | Function application.
 -- Handles fns defined in wisp, primitive fns, and exprs that (may) evaluate
@@ -104,6 +155,7 @@ prim_eval sv = Expr $ \env ->
                          Nothing -> (Left $ "Unable to resolve sumbol: " ++ s, env)
              _ -> (return sv, env)
 
+
 envLookup :: String -> Env -> Maybe Sval
 envLookup _ [] = Nothing
 envLookup s (f:fs) = case M.lookup s f of Nothing -> envLookup s fs
@@ -112,7 +164,7 @@ envLookup s (f:fs) = case M.lookup s f of Nothing -> envLookup s fs
 evalList :: [Sval] -> Env -> (Either String [Sval], Env)
 evalList vs env = let (vs',env') = foldl acc ([],env) $ map prim_eval vs
                       acc (l,s) m = let (r,s') = run m s in (r:l,s')
-                  in (sequence vs', env')
+                  in (sequence (reverse vs'), env')
 
 
 toplevelBindings = [frame]
@@ -122,8 +174,12 @@ toplevelBindings = [frame]
           , ("-",      prim_sub   )
           , ("*",      prim_mul   )
           , ("/",      prim_div   )
-          , ("def",    prim_define)
+          , ("=",      prim_eq    )
+          , ("define", prim_define)
           , ("if",     prim_if    )
+          , ("notify", prim_notify)
+          , ("name",   prim_name  )
+          , ("cat",    prim_cat   )
           ]
 
 {- TYPE PREDICATES -}
@@ -149,4 +205,35 @@ funcp :: Sval
 funcp = Sprim $ \vs e -> (return . Sbool $ all fn vs, e)
   where fn v = case v of Sfunc _ _ _ -> True
                          _ -> False
+
+worldp :: Sval
+worldp = Sprim $ \vs e -> (return . Sbool $ all wd vs, e)
+  where wd v = case v of Sworld _ -> True
+                         _ -> False
+
+{- PARSER -}
+
+parseWisp = parse sexp ""
+
+sexp = fmap Slist $ char '(' *> expr `sepBy` whitespace <* char ')'
+
+whitespace = wsChar >> many wsChar
+  where wsChar = oneOf " \n\t\r"
+
+expr = sexp <|> atom
+
+atom = str <|> symbol <|> number <|> true <|> false
+
+str = Sstring `fmap` (char '"' *> many stringContents <* char '"')
+  where stringContents = try (string "\\\"" >> return '"') <|> noneOf "\""
+
+true = Sbool `fmap` (try (string "#t") >> return True)
+false = Sbool `fmap` (try (string "#f") >> return False)
+
+nonNum = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.'")
+
+number = (Snum . read) `fmap` ((:) <$> digit <*> many digit)
+
+symbol = Ssym `fmap` ((:) <$> nonNum <*> many (digit <|> nonNum))
+
 

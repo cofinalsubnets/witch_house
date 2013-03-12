@@ -13,6 +13,7 @@ import qualified Data.Map as M
 import Data.Maybe
 import Data.List hiding (find)
 import qualified Data.List as List (find)
+import WitchHouse.Types hiding (run)
 
 createNodesTable :: String
 createNodesTable = "CREATE TABLE `nodes` (`id` INTEGER PRIMARY KEY, `name` VARCHAR(255) NOT NULL, `description` TEXT NOT NULL, `location` INTEGER, `password` VARCHAR(255), `root` BOOLEAN NOT NULL, FOREIGN KEY (`location`) REFERENCES `nodes` (`id`), CHECK (`id` <> `location`));"

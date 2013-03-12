@@ -13,6 +13,7 @@ module WitchHouse.Commands
 ) where
 
 import WitchHouse.World
+import WitchHouse.Types
 import Prelude hiding (take,drop)
 import Data.List (isPrefixOf, delete, intercalate)
 import Data.Map (Map)

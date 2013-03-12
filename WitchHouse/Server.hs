@@ -12,6 +12,7 @@ import System.Locale (defaultTimeLocale)
 import System.Timeout
 
 import WitchHouse.World
+import WitchHouse.Types
 import WitchHouse.Commands
 import WitchHouse.Invocation
 import WitchHouse.Persistence
