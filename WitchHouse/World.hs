@@ -40,6 +40,9 @@ import Data.Map (Map)
 import System.IO
 import qualified Data.Map as M
 import Data.Monoid
+import WitchHouse.Wisp.Types
+import WitchHouse.Wisp
+
 
 -- | A thing in the world.
 -- A world is basically a tree of Objs, which we traverse using a zipper.
@@ -51,7 +54,7 @@ data Obj = Obj { name     :: String
                , handle   :: Maybe Handle
                , password :: Maybe String
                , start    :: Bool
-               , action   :: Action
+               , bindings :: Env
                }
 
 instance Eq Obj where
@@ -134,7 +137,7 @@ mkObj = do
              , handle      = Nothing
              , password    = Nothing
              , start       = False
-             , action      = mempty
+             , bindings    = toplevelBindings
              }
 
 {- SELECTORS & LOW-LEVEL TRANSFORMS -}
@@ -209,6 +212,9 @@ find' :: (Obj -> Bool) -> Scope -> World -> World
 find' p s w = case find p s w of Right w' -> w'
                                  Left _ -> error "find': search failed"
 
+evalWisp :: String -> WT
+evalWisp s (o@(Obj {bindings = b}),cs) = case runWisp s b of (Right _, env) -> Right (o{bindings = env},cs)
+                                                             (Left err, _) -> Left err
 
 {- OBJECT PREDICATES -}
 

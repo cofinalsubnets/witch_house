@@ -53,8 +53,6 @@ rootMap = M.fromList $
   , ("whoami", whoami)
   , ("exits", listExits)
   , ("inventory", inventory)
-  , ("use", use)
-  , ("@bind", bind)
   ]
 
 {- NOTIFICATION HELPERS -}
@@ -116,20 +114,6 @@ inventory [] w = case contents $ focus w of
   [] -> notify "You aren't carrying anything." w
   inv -> notify (intercalate "\n" $ "Inventory:":(map name inv)) w
 inventory _ w = huh w
-
-use :: Command
-use [t] w = case find (matchName t) Location w of
-  Left err -> notify err w
-  Right w' -> (execute . action . focus) w' $ w
-use _ w = huh w
-
--- | VERY unfinished.
-bind :: Command
-bind (t:msg) w = case find (matchName t) Location w of
-  Left err -> notify err w
-  Right (f,c) -> let w' = (f{action = Action $ \v -> notify (unwords msg) v},c)
-                 in notify "Bound." $ find' (==focus w) Location w'
-bind _ w = huh w
 
 takes :: Command
 takes [n] = notifyResult (take $ matchName n) $ 
