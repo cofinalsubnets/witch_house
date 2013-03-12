@@ -174,7 +174,7 @@ steps n w = step n (Just w, zDn w)
 -- current focus (Location); all nodes within some distance of the current
 -- focus (Distance n); or all nodes, everywhere (Global).
 find :: (Obj -> Bool) -> Scope -> WT
-find p s w = case List.find (p.focus) $ ops of Nothing -> Left "Huh?"
+find p s w = case List.find (p.focus) $ ops of Nothing -> Left "I don't know of anything like that."
                                                Just w' -> Right w'
   where ops = case s of Self -> zDn w
                         Location -> case zUp w of Left _ -> []

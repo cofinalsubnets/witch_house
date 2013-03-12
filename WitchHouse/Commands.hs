@@ -108,7 +108,7 @@ whoami [] = name . focus >>= notify
 whoami _ = huh
 
 use :: Command
-use [t] w = case find (matchName t) Location w of
+use [t] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
   Right w' -> case envLookup "use" (bindings . focus $ w') of
                 Nothing -> notify "You can't use that." w
@@ -117,8 +117,18 @@ use [t] w = case find (matchName t) Location w of
                              Right _ -> return w
 use _ w = huh w
 
+send :: Command
+send [actn,t] w = case find (matchName t) (Distance 2) w of
+  Left err -> notify err w
+  Right w' -> case envLookup actn (bindings . focus $ w') of
+                Nothing -> notify (unwords ["It's not obvious how to",actn,t,"."]) w
+                Just fn -> case fst $ run (prim_apply fn [Sworld w]) (bindings . focus $ w') of
+                             Left err -> notify err w
+                             Right _ -> return w
+send _ w = huh w
+
 oEval :: Command
-oEval [t,s] = notifyResult (find (matchName t) Location  >=> evalWisp s) $ notify "Ok."
+oEval [t,s] = notifyResult (find (matchName t) (Distance 2)  >=> evalWisp s) $ notify "Ok."
 
 listExits :: Command
 listExits [] w = let xs = map fst . M.toList . exits . focus $ zUp' w
@@ -209,7 +219,7 @@ mLookup k cm = case M.lookup k cm of
   Just c -> c
   Nothing -> case filter (isPrefixOf k) (M.keys cm) of
     [m] -> cm M.! m
-    [] -> \_ -> notify ("I don't know what `"++k++"' means.")
+    [] -> \as -> send (k:as)
     ms -> \_ -> notify ("You could mean: " ++ show ms)
   
 
