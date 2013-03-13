@@ -109,15 +109,16 @@ whoami _ = huh
 send :: Command
 send [actn,t] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
-  Right w' -> case envLookup actn (bindings . focus $ w') of
+  Right w' -> case envLookup actn 0 (bindings . focus $ w') of
                 Nothing -> notify (unwords ["It's not obvious how to",actn,t,"."]) w
-                Just fn -> case fst $ run (prim_apply fn [Sworld w]) (bindings . focus $ w') of
+                Just fn -> case fst $ run (prim_apply fn [Sworld w] 0) (bindings . focus $ w') of
                              Left err -> notify err w
                              Right _ -> return w
 send _ w = huh w
 
 oEval :: Command
 oEval [t,s] = notifyResult (find (matchName t) (Distance 2)  >=> evalWisp s) $ notify "Ok."
+oEval _ = huh
 
 listExits :: Command
 listExits [] w = let xs = map fst . M.toList . exits . focus $ zUp' w

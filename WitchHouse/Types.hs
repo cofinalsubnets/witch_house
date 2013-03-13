@@ -40,8 +40,8 @@ data Scope = Self | Location | Distance Int | Global deriving (Show,Eq,Ord)
 
 -- TYPES FOR WISP
 
-type Frame = Map String Sval
-type Env = [Frame]
+type Frame = (Map String Sval, Int)
+type Env = Map Int Frame
 
 newtype Expr a = Expr { run :: Env -> (a, Env) }
 
@@ -51,9 +51,9 @@ data Sval = Snum Int |
             Ssym String |
             Slist [Sval] |
             Sbool Bool |
-            Sfunc [String] [Sval] Env |
+            Sfunc [String] [Sval] Int |
             Sform [String] [Sval] |
-            Sprim ([Sval] -> Env -> (Either String Sval, Env)) |
+            Sprim ([Sval] -> Int -> Env -> (Either String Sval, Env)) |
             Sworld World |
             Sactn (World -> IO World)
 
@@ -63,10 +63,11 @@ instance Show Sval where
   show (Sbool b)   = if b then "#t" else "#f"
   show (Ssym s)    = s
   show (Slist l)   = "(" ++ (unwords . map show $ l) ++ ")"
-  show (Sfunc _ _ _) = "#<fn>"
+  show (Sfunc _ _ n) = "#<fn:"++show n++">"
   show (Sprim _) = "#<prim fn>"
   show (Sactn _) = "#<actn>"
   show (Sworld _) = "#<world>"
+  show (Sform _ _) = "#<form>"
 
 instance Eq Sval where
   (Snum a)    == (Snum b)    = a == b

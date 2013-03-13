@@ -32,16 +32,11 @@ module WitchHouse.World
 ) where
 
 import Data.List hiding (find, take, drop)
-import qualified Data.List as List (find, take, drop)
+import qualified Data.List as List (find)
 import Prelude hiding (take, drop)
 import Data.Unique
 import Control.Monad (liftM)
-import Data.Map (Map)
-import System.IO
-import System.IO.Unsafe
-import Data.Maybe
 import qualified Data.Map as M
-import Data.Monoid
 
 import WitchHouse.Types
 import WitchHouse.Wisp
