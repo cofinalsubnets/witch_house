@@ -37,8 +37,6 @@ rootMap = M.fromList $
   , ("@make", makes)
   , ("look", looks)
   , ("quit", quit)
-  , ("@name", rename)
-  , ("@describe", redesc)
   , ("@link", links)
   , ("@unlink", unlinks)
   , ("say", say)
@@ -75,8 +73,6 @@ help _ = notify helpMsg
       , "  @make     <object>"
       , "  @link     <origin> <destination> <direction>"
       , "  @unlink   <origin> <direction>"
-      , "  @describe <object> <description>"
-      , "  @name     <object> <name>"
       , "  say       [message]"
       , "  /me       [whatever it is that you do]"
       , "  help"
@@ -97,7 +93,7 @@ send [actn,t] w = case find (matchName t) (Distance 2) w of
 send _ w = huh w
 
 oEval :: Command
-oEval [t,s] = notifyResult (find (matchName t) (Distance 2)  >=> evalWisp s) $ notify "Ok."
+oEval [t,s] = notifyResult (find (matchName t) (Distance 2)  >=> evalWisp s) return
 oEval _ = huh
 
 listExits :: Command
@@ -120,18 +116,6 @@ drops :: Command
 drops [n] = notifyResult (\w -> drop (matchName n) w >>= find (focus w==) Global) $
             notify ("You drop "++n++".") >=> ((++" drops "++n++".") . name . focus >>= notifyExcept)
 drops _ = huh
-
-rename :: Command
-rename [t,n] = notifyResult (\w -> find (matchName t) Global w >>= setName n >>= find (focus w ==) Global) $
-               notify (t++" has been renamed to "++n++".")
-rename [n] = notifyResult (setName n) $ notify ("Your name is now "++n++".")
-rename _ = huh
-
-redesc :: Command
-redesc [t,d] = notifyResult (\w -> find (matchName t) Global w >>= setDesc d >>= find (focus w ==) Global) $
-               notify ("The description of "++t++" has been changed.")
-redesc [d] = notifyResult (setDesc d) $ notify ("Your description has been changed.")
-redesc _ = huh
 
 quit :: Command
 quit [] (f,c) = case handle f of Nothing -> return (f,c)

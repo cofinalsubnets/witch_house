@@ -1,8 +1,5 @@
-{-# LANGUAGE TupleSections, BangPatterns #-}
 module WitchHouse.World.Core
-( setName
-, setDesc
-, take
+( take
 , go
 , drop
 , enter
@@ -34,12 +31,6 @@ import qualified Data.Map as M
 import WitchHouse.Types
 
 {- CONSTRUCTORS & HIGH-LEVEL TRANSFORMS -}
-
-setName :: String -> WT
-setName n (f,c) = return (f{name=n},c)
-
-setDesc :: String -> WT
-setDesc d (f,c) = return (f{description=d},c)
 
 move :: (Obj -> Bool) -> Scope -> WT
 move _ _ (_,[]) = Left "You can't move this object."
