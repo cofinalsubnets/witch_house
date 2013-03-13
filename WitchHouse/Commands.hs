@@ -1,12 +1,14 @@
+{-# LANGUAGE BangPatterns #-}
 module WitchHouse.Commands
 ( parseCommand
 , rootMap
 ) where
 
 import WitchHouse.World
+import WitchHouse.Wisp
 import WitchHouse.Types
 import Prelude hiding (take,drop)
-import Data.List (isPrefixOf, delete, intercalate)
+import Data.List (isPrefixOf, intercalate)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Char
@@ -50,21 +52,12 @@ rootMap = M.fromList $
 
 {- NOTIFICATION HELPERS -}
 
-notify :: String -> WIO
-notify msg w = case handle . focus $ w of Nothing -> return w
-                                          Just h -> hPutStrLn h msg >> hFlush h >> return w
-
-notifyExcept :: String -> WIO
-notifyExcept msg w = case zUp w of Left _ -> return w
-                                   Right w' -> mapM_ (notify msg) (delete w $ zDn w') >> return w
-
 notifyResult :: (World -> Either String World) -> WIO -> WIO
 notifyResult wt wio w = case wt w of Left err -> notify err w
                                      Right w' -> wio $ find' (==focus w) Global w'
 
 huh :: WIO
 huh = notify "Huh?"
-
 
 {- COMMANDS -}
 
@@ -99,7 +92,8 @@ send [actn,t] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
   Right w' -> case invoke actn [Sworld w] (bindings . focus $ w') of
                 Left err -> notify err w
-                Right _ -> return w
+                Right (Sworld !w'') -> return w''
+                Right sv -> notify ("Bad return type: " ++ show sv) w
 send _ w = huh w
 
 oEval :: Command
