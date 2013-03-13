@@ -200,7 +200,7 @@ evalList vs f env = let (vs',env') = foldl acc ([],env) $ map (\o -> prim_eval o
 gc :: Env -> Env
 gc env = let ps = gc' env 0 in foldl (flip M.delete) env (M.keys env \\ ps)
   where gc' e n = let (frame,_) = e M.! n 
-                      fs = map (\(Sfunc _ _ i) -> i) . filter func $ M.elems frame
+                      fs = delete n $ map (\(Sfunc _ _ i) -> i) . filter func $ M.elems frame
                   in n:(concatMap (gc' e) fs)
         func sv = case sv of Sfunc _ _ _ -> True
                              _ -> False
