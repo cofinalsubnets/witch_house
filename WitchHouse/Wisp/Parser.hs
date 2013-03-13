@@ -3,15 +3,14 @@ module WitchHouse.Wisp.Parser (parseWisp) where
 
 import WitchHouse.Types
 import Text.ParserCombinators.Parsec
-import Control.Applicative hiding ((<|>), many)
+import Control.Applicative hiding ((<|>), many, optional)
 
 parseWisp :: String -> Either ParseError Sval
 parseWisp = parse wisp ""
   where
-    wisp = many whitespace *> expr <* many whitespace
+    wisp = optional whitespace *> expr <* optional whitespace
 
-    whitespace = wsChar >> many wsChar
-      where wsChar = oneOf " \n\t\r"
+    whitespace = many1 $ oneOf " \n\t\r"
 
     expr = nakedExpr <|> quotedExpr
 
@@ -19,7 +18,7 @@ parseWisp = parse wisp ""
     quotedExpr = (\v -> Slist [Ssym "quote", v]) `fmap` (quote *> expr)
       where quote = char '\''
 
-    sexp = fmap Slist $ (char '(' >> many whitespace) *> expr `sepBy` whitespace <* (many whitespace >> char ')')
+    sexp = fmap Slist $ char '(' *> optional whitespace *> expr `sepEndBy` whitespace <* char ')'
 
     atom = str <|> symbol <|> number <|> true <|> false
 
@@ -29,7 +28,7 @@ parseWisp = parse wisp ""
     symbol = Ssym `fmap` ((:) <$> symC <*> many (digit <|> symC))
       where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?")
 
-    number = (Snum . read) `fmap` ((:) <$> digit <*> many digit)
+    number = (Snum . read) `fmap` many1 digit
 
     true = Sbool `fmap` (try (string "#t") >> return True)
     false = Sbool `fmap` (try (string "#f") >> return False)
