@@ -20,9 +20,9 @@ import System.IO.Unsafe
 import Text.ParserCombinators.Parsec
 import Control.Applicative hiding ((<|>), many)
 
-runWisp :: String -> Env -> (Either String Sval, Env)
-runWisp s e = case parseWisp s of Right sv -> let (v,e') = run (prim_eval sv 0) e in (v, gc e')
-                                  Left err -> (Left $ show err, e)
+runWisp :: String -> Expr (Either String Sval)
+runWisp s = Expr $ \e -> case parseWisp s of Right sv -> let (v,e') = run (prim_eval sv 0) e in (v, gc e')
+                                             Left err -> (Left $ show err, e)
 
 repl :: IO ()
 repl = repl' toplevel
@@ -33,7 +33,7 @@ repl = repl' toplevel
                         ".env" -> putStr (show bs) >> repl' bs
                         ".quit" -> return ()
                         "" -> repl' bs
-                        _ -> case runWisp l bs of
+                        _ -> case run (runWisp l) bs of
                                (Left err, bs') -> do putStr err
                                                      repl' bs'
                                (Right v, bs') -> do putStr (show v)
@@ -99,6 +99,18 @@ prim_mul = fold_num (*)
 prim_div :: Sval
 prim_div = fold_num quot
 
+prim_null :: Sval
+prim_null = Sprim $ \vs f e ->
+  case vs of
+    [l] -> case run (prim_eval l f) e of
+             (Left err, e') -> (Left err, e')
+             (Right v, e') -> case v of
+                                (Slist []) -> (Right (Sbool True),e')
+                                (Slist _) -> (Right (Sbool False),e')
+                                _ -> (Left $ "Bad argument: " ++ show v, e')
+    _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+            
+
 prim_eq :: Sval
 prim_eq = Sprim $ \vs f e ->
   let (vs',e') = evalList vs f e
@@ -146,14 +158,22 @@ prim_desc = Sprim $ \vs _ e -> case vs of
 -- TODO: see if this can be shorter & add support for special forms!
 prim_apply :: Sval -> [Sval] -> Int -> Expr (Either String Sval)
 prim_apply (Sfunc ps body fe) vs f = Expr $ \env ->
-  if length ps /= length vs then (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for " ++ show (length ps), env)
-    else let (vs', env') = evalList vs f env
-             ret = do vals <- vs'
-                      let frame = (M.fromList (ps `zip` vals), fe)
-                          (n,env'') = newFrame frame env'
-                      return $ run (foldl1 (>>) $ map (\o -> prim_eval o n) body) env''
-         in case ret of Left err -> (Left err, env)
-                        Right res -> res
+  let (posArgs, splat) = break (== ".") ps
+      appl pos var sup
+        | (not $ null var) && (not $ length var == 2) =
+            (Left $ "Bad variadic parameter syntax: " ++ show ps, env)
+        | length pos > length sup || null var && length pos < length sup =
+            (Left $ "Wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos), env)
+        | otherwise = let (vs', env') = evalList vs f env
+                          ret = do vals <- vs'
+                                   let posV = pos `zip` vals
+                                       varV = if null var then [] else [(last var, Slist $ drop (length pos) vals)]
+                                       frame = (M.fromList (varV ++ posV), fe)
+                                       (n,env'') = newFrame frame env'
+                                   return $ run (foldl1 (>>) $ map (\o -> prim_eval o n) body) env''
+                      in case ret of Left err -> (Left err, env)
+                                     Right res -> res
+  in appl posArgs splat vs
 
 prim_apply (Sprim f) vs i = Expr $ \env -> f vs i env
 
@@ -206,8 +226,10 @@ gc env = let ps = gc' env 0 in foldl (flip M.delete) env (M.keys env \\ ps)
                              _ -> False
 
 toplevel :: Env
-toplevel = M.fromList [(0, (frame, -1))]
-  where frame = M.fromList $
+toplevel = let primitives = M.fromList [(0, (ps, -1))]
+               defs = runWisp "(define list (lambda (. l) l))"
+           in snd $ run defs primitives
+  where ps = M.fromList $
           [ ("lambda", prim_lambda)
           , ("+",      prim_add   )
           , ("-",      prim_sub   )
@@ -225,6 +247,7 @@ toplevel = M.fromList [(0, (frame, -1))]
           , ("worldp", worldp     )
           , ("funcp",  funcp      )
           , ("boolp",  boolp      )
+          , ("null",   prim_null  )
           , ("description", prim_desc)
           , ("set!", prim_set     )
           ]

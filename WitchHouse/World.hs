@@ -108,8 +108,9 @@ mkObj = do
              }
 
 evalWisp :: String -> WT
-evalWisp s (o@(Obj {bindings = b}),cs) = case runWisp s b of (Right _, env) -> Right (o{bindings = env},cs)
-                                                             (Left err, _) -> Left err
+evalWisp s (o@(Obj {bindings = b}),cs) = case run (runWisp s) b of
+  (Right _, env) -> Right (o{bindings = env},cs)
+  (Left err, _) -> Left err
 
 {- SELECTORS & LOW-LEVEL TRANSFORMS -}
 
