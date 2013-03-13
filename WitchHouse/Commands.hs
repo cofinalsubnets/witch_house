@@ -97,11 +97,9 @@ whoami _ = huh
 send :: Command
 send [actn,t] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
-  Right w' -> case envLookup actn 0 (bindings . focus $ w') of
-                Nothing -> notify (unwords ["It's not obvious how to",actn,t,"."]) w
-                Just fn -> case fst $ run (prim_apply fn [Sworld w] 0) (bindings . focus $ w') of
-                             Left err -> notify err w
-                             Right _ -> return w
+  Right w' -> case invoke actn [Sworld w] (bindings . focus $ w') of
+                Left err -> notify err w
+                Right _ -> return w
 send _ w = huh w
 
 oEval :: Command

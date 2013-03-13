@@ -3,9 +3,8 @@ module WitchHouse.Wisp
 ( envLookup
 , runWisp
 , toplevel
-, prim_apply
+, invoke
 , repl
-, gc
 ) where
 
 import WitchHouse.Types
@@ -20,6 +19,11 @@ import System.IO.Unsafe
 -- for the parser:
 import Text.ParserCombinators.Parsec
 import Control.Applicative hiding ((<|>), many)
+
+invoke :: String -> [Sval] -> Env -> Either String Sval
+invoke f sv e = case envLookup f 0 e of
+  Nothing -> Left $ "Unable to resolve symbol: " ++ f
+  Just fn -> fst $ run (prim_apply fn sv 0) e
 
 runWisp :: String -> Expr (Either String Sval)
 runWisp s = Expr $ \e -> case parseWisp s of Right sv -> let (v,e') = run (prim_eval sv 0) e in (v, gc e')
@@ -41,6 +45,11 @@ repl = repl' toplevel
                                                     repl' bs'
 
 {- PRIMITIVES -}
+
+prim_quote :: Sval
+prim_quote = Sprim $ \vs _ e ->
+  case vs of [v] -> (Right v,e)
+             _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
 
 prim_lambda :: Sval
 prim_lambda = Sprim $ \vs f env ->
@@ -242,6 +251,7 @@ toplevel = let primitives = M.fromList [(0, (ps, -1))]
           , ("notify", prim_notify)
           , ("name",   prim_name  )
           , ("cat",    prim_cat   )
+          , ("quote",  prim_quote )
           , ("boolp",  boolp      )
           , ("stringp", stringp   )
           , ("nump",   nump       )
@@ -288,7 +298,7 @@ parseWisp :: String -> Either ParseError Sval
 parseWisp = parse wisp ""
 
 wisp :: GenParser Char st Sval
-wisp = many whitespace >> (sexp <|> str <|> number <|> symbol)
+wisp = many whitespace *> expr
 
 sexp :: GenParser Char st Sval
 sexp = fmap Slist $ char '(' *> expr `sepBy` whitespace <* char ')'
@@ -298,7 +308,10 @@ whitespace = wsChar >> many wsChar
   where wsChar = oneOf " \n\t\r"
 
 expr :: GenParser Char st Sval
-expr = sexp <|> atom
+expr = nakedExpr <|> quotedExpr
+
+nakedExpr :: GenParser Char st Sval
+nakedExpr = sexp <|> atom
 
 atom :: GenParser Char st Sval
 atom = str <|> symbol <|> number <|> true <|> false
@@ -314,7 +327,12 @@ false :: GenParser Char st Sval
 false = Sbool `fmap` (try (string "#f") >> return False)
 
 nonNum :: GenParser Char st Char
-nonNum = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.'!")
+nonNum = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!")
+
+
+quotedExpr :: GenParser Char st Sval
+quotedExpr = (\v -> Slist [prim_quote, v]) `fmap` (quote *> nakedExpr)
+  where quote = char '\''
 
 number :: GenParser Char st Sval
 number = (Snum . read) `fmap` ((:) <$> digit <*> many digit)

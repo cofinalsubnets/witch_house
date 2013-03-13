@@ -25,10 +25,9 @@ module WitchHouse.World
 , focus
 , context
 , run
-, prim_apply
 , Sval(..)
-, envLookup
 , evalWisp
+, invoke
 ) where
 
 import Data.List hiding (find, take, drop)
