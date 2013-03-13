@@ -10,6 +10,7 @@ module WitchHouse.Wisp
 import WitchHouse.Types
 
 import qualified Data.Map as M
+import Data.List
 
 -- SRSLY consider whether we really want to do it like this.
 import System.IO
@@ -31,13 +32,17 @@ repl = repl' toplevelBindings
   where repl' bs = do putStr "\n>> "
                       hFlush stdout
                       l <- getLine
-                      case parse sexp "" l of
-                        Left err -> do putStr (show err)
-                                       repl' bs
-                        Right v -> do let (r,bs') = run (prim_eval v 0) bs
-                                      case r of Right r' -> putStr (show r')
-                                                Left err -> putStr ("error: " ++ err)
-                                      repl' bs'
+                      case l of
+                        ".env" -> putStr (show bs) >> repl' bs
+                        ".quit" -> return ()
+                        "" -> repl' bs
+                        _ -> case parse wisp "" l of
+                               Left err -> do putStr (show err)
+                                              repl' bs
+                               Right v -> do let (r,bs') = run (prim_eval v 0) bs
+                                             case r of Right r' -> putStr (show r')
+                                                       Left err -> putStr ("error: " ++ err)
+                                             repl' (gc bs')
                                               
 {- PRIMITIVES -}
 
@@ -49,11 +54,11 @@ prim_lambda = Sprim $ \vs f env ->
 
 prim_define :: Sval
 prim_define = Sprim $ \vs f env ->
-  case vs of [Ssym s, xp] -> let xv = fst $ run (prim_eval xp f) env
+  case vs of [Ssym s, xp] -> let (xv,env') = run (prim_eval xp f) env
                              in case xv of Right v -> let (frame, p) = env M.! f
                                                           frame' = M.insert s v frame
-                                                          env' = M.insert f (frame',p) env
-                                                    in (Right v, env')
+                                                          env'' = M.insert f (frame',p) env'
+                                                    in (Right v, env'')
                                            Left e -> (Left e, env)
              _ -> (Left "Bad definition syntax", env)
 
@@ -138,8 +143,10 @@ prim_apply (Sfunc ps body fe) vs f = Expr $ \env ->
              ret = do vals <- vs'
                       let frame = (M.fromList (ps `zip` vals), fe)
                           (n,env'') = newFrame frame env'
-                      fst $ run (foldl1 (>>) $ map (\o -> prim_eval o n) body) env''
-         in (ret,env')
+                      return $ run (foldl1 (>>) $ map (\o -> prim_eval o n) body) env''
+         in case ret of Left err -> (Left err, env)
+                        Right res -> res
+
 prim_apply (Sprim f) vs i = Expr $ \env -> f vs i env
 
 prim_apply (Ssym s) vs i = Expr $ \env ->
@@ -187,6 +194,15 @@ evalList vs f env = let (vs',env') = foldl acc ([],env) $ map (\o -> prim_eval o
                         acc (l,s) m = let (r,s') = run m s in (r:l,s')
                     in (sequence (reverse vs'), env')
 
+gc :: Env -> Env
+gc env = let ps = gc' env 0
+  in foldl (flip M.delete) env (M.keys env \\ ps)
+  where gc' e n = let (frame,_) = e M.! n 
+                      fs = map (\(Sfunc _ _ i) -> i) . filter func $ M.elems frame
+                  in case fs of [] -> [n]
+                                ns -> n:(concatMap (gc' e) ns)
+        func sv = case sv of Sfunc _ _ _ -> True
+                             _ -> False
 
 toplevelBindings :: Env
 toplevelBindings = M.fromList [(0, (frame, -1))]
@@ -243,7 +259,10 @@ worldp = Sprim $ \vs _ e -> (return . Sbool $ all wd vs, e)
 {- PARSER -}
 
 parseWisp :: String -> Either ParseError Sval
-parseWisp = parse sexp ""
+parseWisp = parse wisp ""
+
+wisp :: GenParser Char st Sval
+wisp = many whitespace >> (sexp <|> str <|> number <|> symbol)
 
 sexp :: GenParser Char st Sval
 sexp = fmap Slist $ char '(' *> expr `sepBy` whitespace <* char ')'
