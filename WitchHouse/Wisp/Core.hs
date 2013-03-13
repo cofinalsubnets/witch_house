@@ -38,6 +38,7 @@ prim_define = Sprim $ \vs f env ->
              (Slist (h:ss)):xps -> run (prim_apply prim_define [h, Slist ([prim_lambda, Slist ss] ++ xps)] f) env
              _ -> (Left "Bad definition syntax", env)
 
+
 prim_set :: Sval
 prim_set = Sprim $ \vs f env ->
   case vs of [Ssym s, xp] -> let (xv,env') = run (prim_eval xp f) env
@@ -90,7 +91,32 @@ prim_null = Sprim $ \vs f e ->
                                 (Slist _) -> (Right (Sbool False),e')
                                 _ -> (Left $ "Bad argument: " ++ show v, e')
     _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+
+prim_car :: Sval
+prim_car = Sprim $ \vs f e ->
+  case vs of
+    [l] -> case run (prim_eval l f) e of
+             (Left err, e') -> (Left err, e')
+             (Right v, e') -> case v of
+                                (Slist (a:_)) -> (Right a,e')
+                                _ -> (Left $ "Bad argument type: " ++ show v, e')
+    _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+
+prim_cdr :: Sval
+prim_cdr = Sprim $ \vs f e ->
+  case vs of
+    [l] -> case run (prim_eval l f) e of
+             (Left err, e') -> (Left err, e')
+             (Right v, e') -> case v of
+                                (Slist (_:d)) -> (Right (Slist d),e')
+                                _ -> (Left $ "Bad argument type: " ++ show v, e')
+    _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
             
+prim_cons :: Sval
+prim_cons = Sprim $ \vs f e ->
+  case fst $ evalList vs f e of
+    Right [s,Slist l] -> (Right (Slist (s:l)), e)
+    _ -> (Left $ "Bad arguments: " ++ show (length vs) ++ " for 1", e)
 
 prim_eq :: Sval
 prim_eq = Sprim $ \vs f e ->
@@ -201,6 +227,9 @@ coreBinds = M.fromList $
           , ("func?",  funcp      )
           , ("null?",   prim_null )
           , ("set!", prim_set     )
+          , ("car", prim_car      )
+          , ("cdr", prim_cdr      )
+          , ("cons", prim_cons    )
           ]
 
 {- TYPE PREDICATES -}

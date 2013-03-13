@@ -1,5 +1,5 @@
 BINNAME := witch_house
-GHCFLAGS := -O2 -fno-warn-unused-do-bind -threaded -Wall -Werror
+GHCFLAGS := -O2 -threaded -Wall -Werror -fno-warn-unused-do-bind
 
 build:
 	ghc --make Main.hs -o ${BINNAME} ${GHCFLAGS}
