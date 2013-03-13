@@ -296,48 +296,34 @@ worldp = Sprim $ \vs _ e -> (return . Sbool $ all wd vs, e)
 
 parseWisp :: String -> Either ParseError Sval
 parseWisp = parse wisp ""
+  where
+    wisp = many whitespace *> expr
 
-wisp :: GenParser Char st Sval
-wisp = many whitespace *> expr
+    whitespace = wsChar >> many wsChar
+      where wsChar = oneOf " \n\t\r"
 
-sexp :: GenParser Char st Sval
-sexp = fmap Slist $ char '(' *> expr `sepBy` whitespace <* char ')'
+    expr = nakedExpr <|> quotedExpr
 
-whitespace :: GenParser Char st String
-whitespace = wsChar >> many wsChar
-  where wsChar = oneOf " \n\t\r"
+    nakedExpr = sexp <|> atom
+    quotedExpr = (\v -> Slist [prim_quote, v]) `fmap` (quote *> nakedExpr)
+      where quote = char '\''
 
-expr :: GenParser Char st Sval
-expr = nakedExpr <|> quotedExpr
+    sexp = fmap Slist $ char '(' *> expr `sepBy` whitespace <* char ')'
 
-nakedExpr :: GenParser Char st Sval
-nakedExpr = sexp <|> atom
+    atom = str <|> symbol <|> number <|> true <|> false
 
-atom :: GenParser Char st Sval
-atom = str <|> symbol <|> number <|> true <|> false
+    str = Sstring `fmap` (char '"' *> many stringContents <* char '"')
+      where stringContents = try (string "\\\"" >> return '"') <|> noneOf "\""
 
-str :: GenParser Char st Sval
-str = Sstring `fmap` (char '"' *> many stringContents <* char '"')
-  where stringContents = try (string "\\\"" >> return '"') <|> noneOf "\""
+    symbol = Ssym `fmap` ((:) <$> symC <*> many (digit <|> symC))
+      where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!")
 
-true :: GenParser Char st Sval
-true = Sbool `fmap` (try (string "#t") >> return True)
+    number = (Snum . read) `fmap` ((:) <$> digit <*> many digit)
 
-false :: GenParser Char st Sval
-false = Sbool `fmap` (try (string "#f") >> return False)
-
-nonNum :: GenParser Char st Char
-nonNum = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!")
+    true = Sbool `fmap` (try (string "#t") >> return True)
+    false = Sbool `fmap` (try (string "#f") >> return False)
 
 
-quotedExpr :: GenParser Char st Sval
-quotedExpr = (\v -> Slist [prim_quote, v]) `fmap` (quote *> nakedExpr)
-  where quote = char '\''
 
-number :: GenParser Char st Sval
-number = (Snum . read) `fmap` ((:) <$> digit <*> many digit)
-
-symbol :: GenParser Char st Sval
-symbol = Ssym `fmap` ((:) <$> nonNum <*> many (digit <|> nonNum))
 
 
