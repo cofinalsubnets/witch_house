@@ -2,7 +2,7 @@
 module WitchHouse.Wisp
 ( envLookup
 , runWisp
-, toplevelBindings
+, toplevel
 , prim_apply
 , repl
 ) where
@@ -21,14 +21,11 @@ import Text.ParserCombinators.Parsec
 import Control.Applicative hiding ((<|>), many)
 
 runWisp :: String -> Env -> (Either String Sval, Env)
-runWisp s e = case parseWisp s of Right sv -> eval' sv e
-                                  Left _ -> (Left "Parse error", e)
-  where eval' vs env = let (r,env') = run (prim_eval vs 0) env
-                       in case r of Right l@(Slist _) -> eval' l env'
-                                    _ -> (r, env')
+runWisp s e = case parseWisp s of Right sv -> let (v,e') = run (prim_eval sv 0) e in (v, gc e')
+                                  Left err -> (Left $ show err, e)
 
 repl :: IO ()
-repl = repl' toplevelBindings
+repl = repl' toplevel
   where repl' bs = do putStr "\n>> "
                       hFlush stdout
                       l <- getLine
@@ -36,14 +33,12 @@ repl = repl' toplevelBindings
                         ".env" -> putStr (show bs) >> repl' bs
                         ".quit" -> return ()
                         "" -> repl' bs
-                        _ -> case parse wisp "" l of
-                               Left err -> do putStr (show err)
-                                              repl' bs
-                               Right v -> do let (r,bs') = run (prim_eval v 0) bs
-                                             case r of Right r' -> putStr (show r')
-                                                       Left err -> putStr ("error: " ++ err)
-                                             repl' (gc bs')
-                                              
+                        _ -> case runWisp l bs of
+                               (Left err, bs') -> do putStr err
+                                                     repl' bs'
+                               (Right v, bs') -> do putStr (show v)
+                                                    repl' bs'
+
 {- PRIMITIVES -}
 
 prim_lambda :: Sval
@@ -61,6 +56,19 @@ prim_define = Sprim $ \vs f env ->
                                                     in (Right v, env'')
                                            Left e -> (Left e, env)
              _ -> (Left "Bad definition syntax", env)
+
+prim_set :: Sval
+prim_set = Sprim $ \vs f env ->
+  case vs of [Ssym s, xp] -> let (xv,env') = run (prim_eval xp f) env
+                             in case xv of Right v -> case findBind s f env' of
+                                                        Nothing -> (Left $ "Unable to resolve symbol: " ++ s, env)
+                                                        Just n -> let (fr,n') = env M.! n
+                                                                  in (Right v, M.insert n (M.insert s v fr, n') env')
+                                           Left e -> (Left e, env)
+             _ -> (Left "Bad definition syntax", env)
+
+  where findBind _ (-1) _ = Nothing
+        findBind nm n e = let (bs,n') = e M.! n in if nm `M.member` bs then Just n else findBind nm n' e
 
 fold_num :: (Int -> Int -> Int) -> Sval
 fold_num op = Sprim $ \vs f env ->
@@ -155,31 +163,25 @@ prim_apply (Ssym s) vs i = Expr $ \env ->
     Just v  -> if v == Ssym s then (Left $ "Circular definition: " ++ s, env)
                               else run (prim_apply v vs i) env
 
-prim_apply (Sform ps body) vs i = Expr $ \env ->
-  if length ps /= length vs then (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for " ++ show (length ps), env)
-    else let frame = (M.fromList $ ps `zip` vs, i)
-             (n,env') = newFrame frame env
-             ret = fst $ run (foldl1 (>>) $ map (\o -> prim_eval o n) body) env'
-         in (ret,env')
-
-
 prim_apply (Slist l) vs i = Expr $ \env -> 
   let fn = fst $ run (prim_eval (Slist l) i) env
       ret = do fn' <- fn
                return $ run (prim_apply fn' vs i) env
   in case ret of Right v -> v
                  Left err -> (Left err, env)
+
 prim_apply v _ _ = Expr $ \env -> (Left $ "Non-applicable value: " ++ show v, env)
 
 newFrame :: Frame -> Env -> (Int,Env)
 newFrame f e = let n = succ (last $ M.keys e) in (n, M.insert n f e)
+
 -- | Sval evaluation.
 prim_eval :: Sval -> Int -> Expr (Either String Sval)
 prim_eval sv f = Expr $ \env ->
   case sv of Slist (o:vs) -> run (prim_apply o vs f) env
              Ssym s -> case envLookup s f env of
                          Just v -> (return v, env)
-                         Nothing -> (Left $ "Unable to resolve sumbol: " ++ s, env)
+                         Nothing -> (Left $ "Unable to resolve symbol: " ++ s, env)
              _ -> (return sv, env)
 
 
@@ -194,18 +196,17 @@ evalList vs f env = let (vs',env') = foldl acc ([],env) $ map (\o -> prim_eval o
                         acc (l,s) m = let (r,s') = run m s in (r:l,s')
                     in (sequence (reverse vs'), env')
 
+-- | VERY primitive reference-counting garbage collection.
 gc :: Env -> Env
-gc env = let ps = gc' env 0
-  in foldl (flip M.delete) env (M.keys env \\ ps)
+gc env = let ps = gc' env 0 in foldl (flip M.delete) env (M.keys env \\ ps)
   where gc' e n = let (frame,_) = e M.! n 
                       fs = map (\(Sfunc _ _ i) -> i) . filter func $ M.elems frame
-                  in case fs of [] -> [n]
-                                ns -> n:(concatMap (gc' e) ns)
+                  in n:(concatMap (gc' e) fs)
         func sv = case sv of Sfunc _ _ _ -> True
                              _ -> False
 
-toplevelBindings :: Env
-toplevelBindings = M.fromList [(0, (frame, -1))]
+toplevel :: Env
+toplevel = M.fromList [(0, (frame, -1))]
   where frame = M.fromList $
           [ ("lambda", prim_lambda)
           , ("+",      prim_add   )
@@ -225,6 +226,7 @@ toplevelBindings = M.fromList [(0, (frame, -1))]
           , ("funcp",  funcp      )
           , ("boolp",  boolp      )
           , ("description", prim_desc)
+          , ("set!", prim_set     )
           ]
 
 {- TYPE PREDICATES -}
@@ -288,7 +290,7 @@ false :: GenParser Char st Sval
 false = Sbool `fmap` (try (string "#f") >> return False)
 
 nonNum :: GenParser Char st Char
-nonNum = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.'")
+nonNum = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.'!")
 
 number :: GenParser Char st Sval
 number = (Snum . read) `fmap` ((:) <$> digit <*> many digit)

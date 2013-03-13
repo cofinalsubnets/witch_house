@@ -104,7 +104,7 @@ mkObj = do
              , handle      = Nothing
              , password    = Nothing
              , start       = False
-             , bindings    = toplevelBindings
+             , bindings    = toplevel
              }
 
 evalWisp :: String -> WT

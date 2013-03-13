@@ -1,15 +1,6 @@
 module WitchHouse.Commands
 ( parseCommand
 , rootMap
-, notify
-, notifyAll
-, notifyExcept
-, takes
-, drops
-, enters
-, leaves
-, goes
-, makes
 ) where
 
 import WitchHouse.World
@@ -62,9 +53,6 @@ rootMap = M.fromList $
 notify :: String -> WIO
 notify msg w = case handle . focus $ w of Nothing -> return w
                                           Just h -> hPutStrLn h msg >> hFlush h >> return w
-
-notifyAll :: String -> WIO
-notifyAll msg w = mapM_ (notify msg) (zDn w) >> return w
 
 notifyExcept :: String -> WIO
 notifyExcept msg w = case zUp w of Left _ -> return w
