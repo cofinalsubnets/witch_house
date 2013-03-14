@@ -23,21 +23,21 @@ worldOps = M.fromList $
 wisp_w_contents :: Sval
 wisp_w_contents = Sprim $ \vs f e ->
   case evalList vs f e of
-    (Left err,_) -> (Left err, e)
-    (Right [Sworld w], _) -> (Right . Slist . map Sworld . zDn $ w, e)
-    (Right l,_) -> (Left $ "bad arguments: " ++ show l, e)
+    Left err -> (Left err, e)
+    Right [Sworld w] -> (Right . Slist . map Sworld . zDn $ w, e)
+    Right l -> (Left $ "bad arguments: " ++ show l, e)
 
 wisp_notify :: Sval
 wisp_notify = Sprim $ \vs f e ->
   case evalList vs f e of
-    (Left err,_) -> (Left err, e)
-    (Right [Sstring s, Sworld w], _) -> (Right . Sworld . unsafePerformIO $ notify s w, e)
-    (Right l,_) -> (Left $ "bad arguments: " ++ show l, e)
+    Left err -> (Left err, e)
+    Right [Sstring s, Sworld w] -> (Right . Sworld . unsafePerformIO $ notify s w, e)
+    Right l -> (Left $ "bad arguments: " ++ show l, e)
 
 wisp_notify_loc :: Sval
 wisp_notify_loc = Sprim $ \vs f e ->
   case evalList vs f e of
-    (Left err,_) -> (Left err, e)
-    (Right [Sstring s, Sstring o, Sworld w], _) -> (Right . Sworld . unsafePerformIO $ notify s w >> notifyExcept o w, e)
-    (Right l,_) -> (Left $ "bad arguments: " ++ show l, e)
+    Left err -> (Left err, e)
+    Right [Sstring s, Sstring o, Sworld w] -> (Right . Sworld . unsafePerformIO $ notify s w >> notifyExcept o w, e)
+    Right l -> (Left $ "bad arguments: " ++ show l, e)
 

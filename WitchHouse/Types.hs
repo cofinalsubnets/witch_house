@@ -45,6 +45,7 @@ type Env = Map Int Frame
 
 newtype Expr a = Expr { run :: Env -> (a, Env) }
 
+type Htrans = [Sval] -> Int -> Env -> (Either String Sval, Env)
 -- type for wisp values
 data Sval = Snum Int |
             Sstring String |
@@ -52,8 +53,8 @@ data Sval = Snum Int |
             Slist [Sval] |
             Sbool Bool |
             Sfunc [String] [Sval] Int |
-            Sform [String] [Sval] |
-            Sprim ([Sval] -> Int -> Env -> (Either String Sval, Env)) |
+            Sform Htrans |
+            Sprim Htrans |
             Sworld World |
             Sactn (World -> IO World)
 
@@ -67,7 +68,7 @@ instance Show Sval where
   show (Sprim _) = "#<prim fn>"
   show (Sactn _) = "#<actn>"
   show (Sworld _) = "#<world>"
-  show (Sform _ _) = "#<form>"
+  show (Sform _) = "#<form>"
 
 instance Eq Sval where
   (Snum a)    == (Snum b)    = a == b
