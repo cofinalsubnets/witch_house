@@ -67,6 +67,8 @@ saveWorld w conn = do
                         func sv = case sv of { Sfunc _ _ _ -> True; _ -> False }
                     _ <- execute insn [toSql oid, toSql (name o), toSql (description o), toSql l, toSql (password o), toSql (start o)]
                     mapM_ dx (M.toList $ exits o)
+
+                    -- this doesn't cut it for higher-order fns
                     mapM_ dw (filter (func . snd) . M.toList . fst $ bindings o M.! 0)
                     mapM_ (dump $ Just oid) (contents o)
 
