@@ -155,7 +155,11 @@ prim_apply (Sfunc ps body fe) vs f = Expr $ \env ->
                                        (n,env'') = newFrame frame env'
                                    return $ run (foldl1 (>>) $ map (\o -> prim_eval o n) body) env''
                       in case ret of Left err -> (Left err, env)
-                                     Right res -> res
+                                     Right (Right sf@(Sfunc _ _ n),env'') -> (Right sf, if n == last (M.keys env'')
+                                                                                        then env''
+                                                                                        else env')
+                                     Right r -> r
+
   in appl posArgs splat vs
 
 prim_apply (Sprim f) vs i = Expr $ \env -> f vs i env
@@ -201,12 +205,10 @@ evalList vs f env = let (vs',env') = foldl acc ([],env) $ map (\o -> prim_eval o
 
 -- | VERY primitive reference-counting garbage collection.
 gc :: Env -> Env
-gc env = let ps = gc' env 0 in foldl (flip M.delete) env (M.keys env \\ ps)
-  where gc' e n = let (frame,_) = e M.! n 
-                      fs = filter (not . (n==)) $ map (\(Sfunc _ _ i) -> i) . filter func $ M.elems frame
-                  in n:(concatMap (gc' e) fs)
-        func sv = case sv of Sfunc _ _ _ -> True
-                             _ -> False
+gc env = foldl (flip M.delete) env (M.keys env \\ nub ks)
+  where ks = [0] ++ (map frame . filter func $ concatMap M.elems (map fst $ M.elems env))
+        func sv = case sv of { Sfunc _ _ _ -> True; _ -> False }
+        frame sv = case sv of { Sfunc _ _ n -> n; _ -> error $ "gc: bad Sval type: " ++ show sv }
 
 coreBinds :: M.Map String Sval
 coreBinds = M.fromList $

@@ -32,6 +32,10 @@ toplevel = snd $ run defs base
       , "(define (not v) (if v #f #t))"
       , "(define (comp f g) (lambda (n) (f (g n))))"
       , "(define (reverse l) (define (inner acc l) (if (null? l) acc (inner (cons (car l) acc) (cdr l)))) (inner '() l))"
+      , "(define (inc n) (+ n 1))"
+      , "(define (dec n) (- n 1))"
+      , "(define (id n) n)"
+      , "(define (const x) (lambda (y) x))"
       ]
 
 invoke :: String -> [Sval] -> Env -> Either String Sval
@@ -40,8 +44,9 @@ invoke f sv e = case envLookup f 0 e of
   Just fn -> fst $ run (prim_apply fn sv 0) e
 
 runWisp :: String -> Expr (Either String Sval)
-runWisp s = Expr $ \e -> case parseWisp s of Right sv -> let (v,e') = run (prim_eval sv 0) e in (v, gc e')
-                                             Left err -> (Left $ show err, e)
+runWisp s = Expr $ \e -> case parseWisp s of
+  Right sv -> let (v,e') = run (prim_eval sv 0) e in (v, gc e')
+  Left err -> (Left $ show err, e)
 
 evalWisp :: String -> WT
 evalWisp s w = let (o,cs) = bindAttrs w
