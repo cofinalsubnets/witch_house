@@ -145,7 +145,10 @@ _eval [v] f env
     spec sv = case sv of Slist (Ssym s:_) -> s `M.member` specialForms
                          _ -> False
 
-    _apply_spec (Slist ((Ssym s):t)) = let Sform form = specialForms M.! s in form t f env
+    _apply_spec (Slist ((Ssym s):t)) = let Sform form = specialForms M.! s
+      in case s of "eval"  -> case form t f env of (Right v',env') -> _eval [v'] f env'
+                                                   err -> err
+                   _ -> form t f env
     _apply_spec _ = error "_eval: _apply_spec: unexpected pattern"
 
     _eval_var (Ssym sv) = case envLookup sv f env of
