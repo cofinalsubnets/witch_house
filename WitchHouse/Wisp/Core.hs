@@ -10,7 +10,6 @@ module WitchHouse.Wisp.Core
 ) where
 
 import WitchHouse.Types
---import WitchHouse.Wisp.Parser
 
 import qualified Data.Map as M
 import Data.List
@@ -258,51 +257,3 @@ tc_fail p v = if p v then return () else Left $ "Bad type: " ++ show v
 check :: (Sval -> Bool) -> Sval
 check p = Sprim $ \vs f e -> case evalList vs f e of { Right vs' -> (return . Sbool $ all p vs', e); Left err -> (Left err,e) }
 
-
-{-
-runWisp :: String -> Expr (Either String Sval)
-runWisp s = Expr $ \e -> case parseWisp s of
-  Right sv -> let (v,e') = run (p_apply f_eval [sv] 0) e in (v, e')
-  Left err -> (Left $ show err, e)
-
-toplevel :: Env
-toplevel = snd $ run defs base
-  where 
-    base = M.fromList [(0, (binds, -1))]
-    binds = coreBinds
-    defs = mapM runWisp $
-      [ "(define (list . l) l)"
-      , "(define (member e lst) (if (null? lst) #f (if (= (car lst) e) lst (member e (cdr lst)))))"
-      , "(define (length l) (if (null? l) 0 (+ 1 (length (cdr l)))))"
-      , "(define (comp f g) (lambda (n) (f (g n))))"
-      , "(define (car l) (if (null? l) l (apply (lambda (h . t) h) l)))"
-      , "(define (cdr l) (if (null? l) l (apply (lambda (h . t) t) l)))"
-      , "(define caar (comp car car))"
-      , "(define cadr (comp car cdr))"
-      , "(define cddr (comp cdr cdr))"
-      , "(define cdar (comp cdr car))"
-      , "(define caaar (comp car caar))"
-      , "(define caadr (comp car cadr))"
-      , "(define cadar (comp car cdar))"
-      , "(define caddr (comp car cddr))"
-      , "(define cdaar (comp cdr caar))"
-      , "(define cdadr (comp cdr cadr))"
-      , "(define cddar (comp cdr cdar))"
-      , "(define cdddr (comp cdr cddr))"
-      , "(define (assoc v l) (if (null? l) #f (if (= v (caar l)) (car (cdar l)) (assoc v (cdr l)))))"
-      , "(define (map op l) (if (null? l) l (cons (op (car l)) (map op (cdr l)))))"
-      , "(define (filter p l) (if (null? l) l (if (p (car l)) (cons (car l) (filter p (cdr l))) (filter p (cdr l)))))"
-      , "(define (not v) (if v #f #t))"
-      , "(define (reverse l) (define (inner acc l) (if (null? l) acc (inner (cons (car l) acc) (cdr l)))) (inner '() l))"
-      , "(define (inc n) (+ n 1))"
-      , "(define (dec n) (- n 1))"
-      , "(define (id n) n)"
-      , "(define (const x) (lambda (y) x))"
-      , "(define (remainder a b) (- a (* b (/ a b))))"
-      , "(define (even? n) (= 0 (remainder n 2)))"
-      , "(define odd? (comp not even?))"
-      , "(define (and a b) (if a b a))"
-      , "(define (or a b) (if a a b))"
-      , "(define (juxt f g) (lambda (. n) (list (apply f n) (apply g n))))"
-      ]
-      -}
