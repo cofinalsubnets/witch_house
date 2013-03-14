@@ -64,7 +64,7 @@ instance Show Sval where
   show (Sbool b)   = if b then "#t" else "#f"
   show (Ssym s)    = s
   show (Slist l)   = "(" ++ (unwords . map show $ l) ++ ")"
-  show (Sfunc as b _) = "(lambda " ++ show (Slist $ map Ssym as) ++ " " ++ (unwords $ map show b) ++ ")"
+  show (Sfunc as b f) = "(lambda " ++ show (Slist $ map Ssym as) ++ " " ++ (unwords $ map show b) ++ ") ;; " ++ show f
   show (Sprim _) = "#<prim fn>"
   show (Sactn _) = "#<actn>"
   show (Sworld _) = "#<world>"
