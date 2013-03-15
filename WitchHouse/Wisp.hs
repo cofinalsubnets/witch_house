@@ -118,14 +118,17 @@ toplevel = snd $ run defs base
       , "            (apply g (cons h t))))))"
       ]
 
-invoke :: String -> [Sval] -> Env -> Either String Sval
-invoke f sv e = case envLookup f 0 e of
-  Nothing -> Left $ "Unable to resolve symbol: " ++ f
-  Just fn -> fst $ run (p_apply fn sv 0) e
+invoke :: String -> [Sval] -> World -> Either String (Sval,World)
+invoke f sv w = let (o,cs) = bindAttrs w
+  in case envLookup f 0 (bindings o) of
+       Nothing -> Left $ "Unable to resolve symbol: " ++ f
+       Just fn -> case run (p_apply fn sv 0) (bindings o) of
+                    (Right s,env) -> Right (s, (applyAttrs o{bindings = env},cs))
+                    (Left err,_)  -> Left err
 
 runWisp :: String -> Expr (Either String Sval)
 runWisp s = Expr $ \e -> case parseWisp s of
-  Right sv -> let (v,e') = run (p_apply f_eval [sv] 0) e in (v, gc e')
+  Right sv -> let (v,e') = run (p_apply p_eval [sv] 0) e in (v, gc e')
   Left err -> (Left $ show err, e)
 
 evalWisp :: String -> WT

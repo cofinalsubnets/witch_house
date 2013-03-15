@@ -3,7 +3,7 @@
 module WitchHouse.Wisp.Core
 ( coreBinds
 , evalList
-, f_eval
+, p_eval
 , p_apply
 , gc
 , envLookup
@@ -30,7 +30,7 @@ f_lambda = Sform $ \vs f env ->
 
 f_define :: Sval
 f_define = Sform $ \vs f env -> case vs of
-  [Ssym s, xp] -> let (xv,env') = run (p_apply f_eval [xp] f) env
+  [Ssym s, xp] -> let (xv,env') = run (p_apply p_eval [xp] f) env
                   in case xv of
                        Right v -> let (frame, p) = env M.! f
                                       frame' = M.insert s v frame
@@ -43,7 +43,7 @@ f_define = Sform $ \vs f env -> case vs of
 
 f_set :: Sval
 f_set = Sform $ \vs f env -> case vs of
-  [Ssym s, xp] -> let (xv,env') = run (p_apply f_eval [xp] f) env
+  [Ssym s, xp] -> let (xv,env') = run (p_apply p_eval [xp] f) env
                   in case xv of
                        Right v -> case findBind s f env' of
                                     Nothing -> (Left $ "Unable to resolve symbol: " ++ s, env)
@@ -92,14 +92,14 @@ p_eq = Sprim $ \vs _ e -> (return $ Sbool . and . zipWith (==) vs $ drop 1 vs, e
 f_if :: Sval
 f_if = Sform $ \vs f env ->
   case vs of
-    [cond, y, n] -> let (v,_) = run (p_apply f_eval [cond] f) env
+    [cond, y, n] -> let (v,_) = run (p_apply p_eval [cond] f) env
       in case v of Left err -> (Left err, env)
-                   Right v' -> case v' of (Sbool False) -> run (p_apply f_eval [n] f) env
-                                          _             -> run (p_apply f_eval [y] f) env
+                   Right v' -> case v' of (Sbool False) -> run (p_apply p_eval [n] f) env
+                                          _             -> run (p_apply p_eval [y] f) env
     _ -> (Left "Improper syntax: if", env)
 
 f_begin :: Sval
-f_begin = Sform $ \sv f -> run (foldl1 (>>) $ map (\o -> p_apply f_eval [o] f) sv)
+f_begin = Sform $ \sv f -> run (foldl1 (>>) $ map (\o -> p_apply p_eval [o] f) sv)
   
 w_apply :: Sval
 w_apply = Sprim $ \sv f env -> case sv of
@@ -134,8 +134,8 @@ p_apply (Sfunc ps body fe) vs _ = Expr $ apply posArgs splat vs
 p_apply v _ _ = Expr $ \env -> (Left $ "Non-applicable value: " ++ show v, env)
 
 
-f_eval :: Sval
-f_eval = Sform _eval
+p_eval :: Sval
+p_eval = Sprim _eval
 
 _eval :: [Sval] -> Int -> Env -> (Either String Sval, Env)
 _eval [v] f env
@@ -151,10 +151,7 @@ _eval [v] f env
     spec sv = case sv of Slist (Ssym s:_) -> s `M.member` specialForms
                          _ -> False
 
-    _apply_spec (Slist ((Ssym s):t)) = let Sform form = specialForms M.! s
-      in case s of "eval"  -> case form t f env of (Right v',env') -> _eval [v'] f env'
-                                                   err -> err
-                   _ -> form t f env
+    _apply_spec (Slist ((Ssym s):t)) = let Sform form = specialForms M.! s in form t f env
     _apply_spec _ = error "_eval: _apply_spec: unexpected pattern"
 
     _eval_var (Ssym sv) = case envLookup sv f env of
@@ -183,7 +180,7 @@ envLookup s f env = let (binds,nxt) = env M.! f
                               Just v -> Just v
 
 evalList :: [Sval] -> Int -> Env -> Either String [Sval]
-evalList vs f env = let (vs',_) = foldl acc ([],env) $ map (\o -> p_apply f_eval [o] f) vs
+evalList vs f env = let (vs',_) = foldl acc ([],env) $ map (\o -> p_apply p_eval [o] f) vs
                         acc (l,s) m = let (r,s') = run m s in (r:l,s')
                     in sequence (reverse vs')
 
@@ -199,7 +196,6 @@ specialForms = M.fromList $
   [ ("define", f_define)
   , ("begin",  f_begin )
   , ("quote",  f_quote )
-  , ("eval",   f_eval  )
   , ("if",     f_if    )
   , ("lambda", f_lambda)
   , ("set!",   f_set   )
@@ -212,6 +208,7 @@ coreBinds = M.fromList $
   , ("*",      fold_num (*) )
   , ("/",      fold_num quot)
   , ("=",      p_eq    )
+  , ("eval",   p_eval  )
   , ("cat",    p_cat   )
   , ("apply",  w_apply )
   , ("bool?", check tc_bool)

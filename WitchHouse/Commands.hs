@@ -46,6 +46,7 @@ rootMap = M.fromList $
   , ("exits", listExits)
   , ("inventory", inventory)
   , ("@eval", oEval)
+  , ("@env", env)
   ]
 
 {- NOTIFICATION HELPERS -}
@@ -86,15 +87,21 @@ whoami _ = huh
 send :: Command
 send [actn,t] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
-  Right w' -> case invoke actn [Sworld w] (bindings . focus $ w') of
+  Right w' -> case invoke actn [Sworld w] w' of
                 Left err -> notify err w
-                Right (Sworld !w'') -> return w''
-                Right sv -> notify ("Bad return type: " ++ show sv) w
+                Right ((Sworld !w''),w''') -> return w'' >> return w'''
+                Right (sv,w'') -> notify ("Bad return type: " ++ show sv) w >> return w''
 send _ w = huh w
 
 oEval :: Command
 oEval [t,s] = notifyResult (find (matchName t) (Distance 2)  >=> evalWisp s) return
 oEval _ = huh
+
+env :: Command
+env [t] w = case find (matchName t) (Distance 2) w of
+  Left err -> notify err w
+  Right t' -> notify (show . bindings . focus $ t') w
+env _ w = huh w
 
 listExits :: Command
 listExits [] w = let xs = map fst . M.toList . exits . focus $ zUp' w
@@ -108,36 +115,55 @@ inventory [] w = case contents $ focus w of
 inventory _ w = huh w
 
 takes :: Command
-takes [n] = notifyResult (take $ matchName n) $ 
-            notify ("You now have "++n++".") >=> ((++" takes "++n++".") . name . focus >>= notifyExcept)
-takes _ = huh
+takes [n] w = case take (matchName n) w of
+  Left err -> notify err w
+  Right w' -> do let n' = name . focus $ w'
+                 notify ("You now have "++n'++".") w
+                 ((++" takes "++n++".") . name . focus >>= notifyExcept) w
+                 looks [] w'
+takes _ w = huh w
 
 drops :: Command
-drops [n] = notifyResult (\w -> drop (matchName n) w >>= find (focus w==) Global) $
-            notify ("You drop "++n++".") >=> ((++" drops "++n++".") . name . focus >>= notifyExcept)
-drops _ = huh
+drops [n] w = case drop (matchName n) w of
+  Left err -> notify err w
+  Right w' -> do let n' = name . focus $ w'
+                 notify ("You drop "++n'++".") w
+                 (++" drops "++n'++".") . name . focus >>= notifyExcept $ w
+                 return w'
+drops _ w = huh w
 
 quit :: Command
-quit [] (f,c) = case handle f of Nothing -> return (f,c)
-                                 Just h -> do hPutStrLn h "Bye!"
-                                              hClose h
-                                              return (f{handle = Nothing},c)
+quit [] (f,c) = case handle f of
+  Nothing -> return (f,c)
+  Just h -> do hPutStrLn h "Bye!"
+               hClose h
+               return (f{handle = Nothing},c)
+
 quit _ w = huh w
 
 goes :: Command
-goes [dir] = notifyResult (go dir) $ looks [] >=> ((++" arrives.") . name . focus >>= notifyExcept)
-goes _ = huh
+goes [dir] w = case go dir w of
+  Left err -> notify err w
+  Right w' -> do (++" goes "++dir++".") . name . focus >>= notifyExcept $ w
+                 looks [] w' >>= ((++" arrives.") . name . focus >>= notifyExcept)
+goes _ w = huh w
 
 leaves :: Command
-leaves [] = notifyResult exit $ looks [] >=> ((++" enters.") . name . focus >>= notifyExcept)
-leaves _ = huh
+leaves [] w = case exit w of
+  Left err -> notify err w
+  Right w' -> do (++ " exits.") . name . focus >>= notifyExcept $ w
+                 looks [] w' >>= ((++" arrives from " ++ (name.focus.zUp'$w)++".") . name . focus >>= notifyExcept)
+leaves _ w = huh w
 
 enters :: Command
-enters [n] = notifyResult (enter $ matchName n) $ looks [] >=> ((++"  enters.") . name . focus >>= notifyExcept)
-enters _ = huh
+enters [n] w = case enter (matchName n) w of
+  Left err -> notify err w
+  Right w' -> do (++ " enters "++(name . focus . zUp' $ w')++".") . name . focus >>= notifyExcept $ w
+                 looks [] w' >>= ((++" enters.") . name . focus >>= notifyExcept)
+enters _ w = huh w
 
 makes :: Command
-makes [n] = make n >=> notify ("You've made "++n)
+makes [n] = make n >=> notify ("You make "++n++".")
 makes _ = huh
 
 looks :: Command
