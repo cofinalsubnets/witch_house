@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 module WitchHouse.Wisp
 ( toplevel
 , invoke
@@ -84,7 +85,7 @@ toplevel = snd $ run defs base
       , "                  (filter p (cdr l)))"
       , "            (filter p (cdr l)))))"
 
-      , "  (define (reduce op acc l)"
+      , "  (define (fold op acc l)"
       , "    (if (null? l)"
       , "        acc"
       , "        (fold op (op acc (car l)) (cdr l))))"
@@ -111,11 +112,67 @@ toplevel = snd $ run defs base
       , "  (define (even? n)"
       , "    (= 0 (remainder n 2)))"
       , "  (define odd? (comp not even?))"
+      
+      , "  (define (append l1 l2)"
+      , "    (if (null? l1)"
+      , "        l2"
+      , "        (cons (car l1)"
+      , "              (append (cdr l1) l2))))"
 
       , "  (define (juxt f g)"
       , "    (lambda (h . t)"
       , "      (list (apply f (cons h t))"
-      , "            (apply g (cons h t))))))"
+      , "            (apply g (cons h t)))))"
+
+      , "  (define (quiet-exit) (set! *self* (w-up *self*)))"
+      , "  (define (enter n) (set! *self* (w-dn *self* (if (world? n) (name n) n))))"
+      , "  (define (join strs j)"
+      , "    (fold (lambda (s1 s2) (cat s1 j s2)) (car strs) (cdr strs)))"
+
+      , "  (define (take w)"
+      , "    (enter"
+      , "      (notify-room (cat \"You take \" *name* \".\")"
+      , "                   (cat (name w) \" takes \" *name* \".\")"
+      , "                   w)))"
+      
+      , "  (define (drop w)"
+      , "    (quiet-exit)"
+      , "    (notify-room (cat \"You drop \" *name* \".\")"
+      , "                 (cat (name w) \" drops \" *name* \".\")"
+      , "                 w))"
+
+      , "  (define (exit)"
+      , "    (notify-room \"\""
+      , "                 (cat *name* \" arrives.\")"
+      , "                 (begin"
+      , "                   (set! *self*"
+      , "                         (w-up (notify-room \"\""
+      , "                                            (cat *name* \" exits.\")"
+      , "                                            *self*)))"
+      , "                   (look))))"
+
+      , "  (define (look)"
+      , "    (notify (join (append (list (name (location *self*))"
+      , "                                (desc (location *self*)))"
+      , "                          (map (lambda (i) (cat (name i) \" is here.\"))"
+      , "                               (contents (location *self*))))"
+      , "                  \"\n\")"
+      , "            *self*))"
+
+
+      , "  (define (whoami)"
+      , "    (notify *name* *self*))"
+
+      , "  (define (inventory)"
+      , "    ((lambda (i)"
+      , "       (if (null? i)"
+      , "           (notify \"You aren't carrying anything.\" *self*)"
+      , "           (notify (join (cons \"You are carrying:\""
+      , "                               (map name i))"
+      , "                         \"\n\")"
+      , "                   *self*)))"
+      , "     (contents *self*)))" 
+      , ")"
       ]
 
 invoke :: String -> [Sval] -> World -> Either String (Sval,World)
@@ -123,7 +180,7 @@ invoke f sv w = let (o,cs) = bindAttrs w
   in case envLookup f 0 (bindings o) of
        Nothing -> Left $ "Unable to resolve symbol: " ++ f
        Just fn -> case run (p_apply fn sv 0) (bindings o) of
-                    (Right s,env) -> Right (s, (applyAttrs o{bindings = env},cs))
+                    (Right s,env) -> Right (s, applyAttrs env (o,cs))
                     (Left err,_)  -> Left err
 
 runWisp :: String -> Expr (Either String Sval)
@@ -134,21 +191,22 @@ runWisp s = Expr $ \e -> case parseWisp s of
 evalWisp :: String -> WT
 evalWisp s w = let (o,cs) = bindAttrs w
   in case run (runWisp s) (bindings o) of
-       (Right (Sworld w'), _) -> Right w'
-       (Right _, env) -> Right (applyAttrs o{bindings = env},cs)
+       (Right (Sworld !w'), env) -> return w' >> Right (applyAttrs env (o,cs))
+       (Right _, env) -> Right (applyAttrs env (o,cs))
        (Left err, _) -> Left err
 
 bindAttrs :: World -> World
 bindAttrs (o,cs) = let bs = fromList [ ("*name*", Sstring $ name o)
                                      , ("*desc*", Sstring $ description o)
-                                     , ("*world*", Sworld (o,cs))
+                                     , ("*self*", Sworld (o,cs))
                                      ]
                        (tl,_) = bindings o ! 0
-  in (o{bindings = insert 0 ((tl `union` bs),-1) (bindings o)},cs)
+  in (o{bindings = insert 0 ((bs `union` tl),-1) (bindings o)},cs)
 
-applyAttrs :: Obj -> Obj
-applyAttrs o = apName . apDesc $ o
-  where (tl,_) = bindings o ! 0
-        apName obj = case M.lookup "*name*" tl of { Just (Sstring n) -> obj{name = n} ; _ -> obj }
-        apDesc obj = case M.lookup "*desc*" tl of { Just (Sstring d) -> obj{description = d}; _ -> obj }
+applyAttrs :: Env -> World -> World
+applyAttrs b w = apName . apDesc $ apWrld
+  where (tl,_) = b ! 0
+        apWrld = case M.lookup "*self*" tl of { Just (Sworld (f,cs)) -> (f{bindings = b},cs) ; _ -> w }
+        apName w'@(f,cs) = case M.lookup "*name*" tl of { Just (Sstring n) -> (f{name = n},cs); _ -> w' }
+        apDesc w'@(f,cs) = case M.lookup "*desc*" tl of { Just (Sstring d) -> (f{description = d},cs); _ -> w' }
 

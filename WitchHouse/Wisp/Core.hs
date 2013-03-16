@@ -96,7 +96,7 @@ f_if = Sform $ \vs f env ->
       in case v of Left err -> (Left err, env)
                    Right v' -> case v' of (Sbool False) -> run (p_apply p_eval [n] f) env
                                           _             -> run (p_apply p_eval [y] f) env
-    _ -> (Left "Improper syntax: if", env)
+    _ -> (Left $ "if: bad conditional syntax: " ++ show (Slist $ (Ssym "if"):vs), env)
 
 f_begin :: Sval
 f_begin = Sform $ \sv f -> run (foldl1 (>>) $ map (\o -> p_apply p_eval [o] f) sv)
@@ -107,13 +107,10 @@ w_apply = Sprim $ \sv f env -> case sv of
   _ -> (Left $ "Bad arguments: " ++ show sv, env)
 
 -- | Function application.
--- Handles fns defined in wisp, primitive fns, and exprs that (may) evaluate
--- to fns as separate cases.
--- TODO: see if this can be shorter & add support for special forms!
 p_apply :: Sval -> [Sval] -> Int -> Expr (Either String Sval)
 
-p_apply (Sprim f) vs i = Expr $ \env -> f vs i env -- primitive fn application - the easy case!
-p_apply (Sform f) vs i = Expr $ \env -> f vs i env
+p_apply (Sprim f) vs i = Expr $ f vs i -- primitive fn application - the easy case!
+p_apply (Sform f) vs i = Expr $ f vs i
 
 p_apply (Sfunc ps body fe) vs _ = Expr $ apply posArgs splat vs
   where
@@ -160,11 +157,12 @@ _eval [v] f env
     _eval_var _ = error "_eval: _eval_var: unexpected pattern"
 
     _apply (Slist (o:vs)) = let (op, env') = _eval [o] f env
-                                (vals,env'') = foldl acc ([],env') vs
-                                acc (rs,ienv) xp = let (r,e') = _eval [xp] f ienv in (r:rs,e')
+                                (vals,envs) = unzip $ acc env' vs
+                                acc e (r:rs) = let p@(_,e') = _eval [r] f e in p:(acc e' rs)
+                                acc _ [] = []
 
                             in case (op,sequence vals) of
-                                 (Right op',Right vals') -> run (p_apply op' (reverse vals') f) env''
+                                 (Right op',Right vals') -> run (p_apply op' vals' f) (last envs)
                                  (Left err,_) -> (Left err,env)
                                  (_,Left err) -> (Left err,env)
 

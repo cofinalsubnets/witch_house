@@ -7,7 +7,6 @@ module WitchHouse.Commands
 import WitchHouse.World
 import WitchHouse.Wisp
 import WitchHouse.Types
-import Prelude hiding (take,drop)
 import Data.List (isPrefixOf, intercalate)
 import Data.Map (Map)
 import qualified Data.Map as M
@@ -29,22 +28,15 @@ parseCommand cm s = case tokenize s of
 -- | Default command map.
 rootMap :: Map String Command
 rootMap = M.fromList $
-  [ ("take", takes)
-  , ("drop", drops)
-  , ("enter", enters)
-  , ("exit", leaves)
+  [ ("enter", enters)
   , ("go",   goes)
   , ("@make", makes)
-  , ("look", looks)
   , ("quit", quit)
   , ("@link", links)
   , ("@unlink", unlinks)
   , ("say", say)
   , ("/me", me)
   , ("help", help)
-  , ("whoami", whoami)
-  , ("exits", listExits)
-  , ("inventory", inventory)
   , ("@eval", oEval)
   , ("@env", env)
   ]
@@ -80,10 +72,6 @@ help _ = notify helpMsg
       , "  whoami"
       ]
 
-whoami :: Command
-whoami [] = name . focus >>= notify
-whoami _ = huh
-
 send :: Command
 send [actn,t] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
@@ -91,46 +79,26 @@ send [actn,t] w = case find (matchName t) (Distance 2) w of
                 Left err -> notify err w
                 Right ((Sworld !w''),w''') -> return w'' >> return w'''
                 Right (sv,w'') -> notify ("Bad return type: " ++ show sv) w >> return w''
+send [actn] w = case invoke actn [] w of
+  Left err -> notify err w
+  Right ((Sworld !w''),w''') -> return w'' >> return w'''
+  Right (sv,w'') -> notify ("Bad return type: " ++ show sv) w >> return w''
 send _ w = huh w
 
 oEval :: Command
-oEval [t,s] = notifyResult (find (matchName t) (Distance 2)  >=> evalWisp s) return
-oEval _ = huh
+oEval [t,s] w = case find (matchName t) (Distance 2) w >>= evalWisp s of
+  Left err -> notify err w
+  Right w' -> return w'
+oEval [s] w = case evalWisp s w of
+  Left err -> notify err w
+  Right w' -> return w'
+oEval _ w = huh w
 
 env :: Command
 env [t] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
   Right t' -> notify (show . bindings . focus $ t') w
 env _ w = huh w
-
-listExits :: Command
-listExits [] w = let xs = map fst . M.toList . exits . focus $ zUp' w
-  in notify (intercalate "\n" $ "The following exits are available:":xs) w
-listExits _ w = huh w
-
-inventory :: Command
-inventory [] w = case contents $ focus w of
-  [] -> notify "You aren't carrying anything." w
-  inv -> notify (intercalate "\n" $ "Inventory:":(map name inv)) w
-inventory _ w = huh w
-
-takes :: Command
-takes [n] w = case take (matchName n) w of
-  Left err -> notify err w
-  Right w' -> do let n' = name . focus $ w'
-                 notify ("You now have "++n'++".") w
-                 ((++" takes "++n++".") . name . focus >>= notifyExcept) w
-                 looks [] w'
-takes _ w = huh w
-
-drops :: Command
-drops [n] w = case drop (matchName n) w of
-  Left err -> notify err w
-  Right w' -> do let n' = name . focus $ w'
-                 notify ("You drop "++n'++".") w
-                 (++" drops "++n'++".") . name . focus >>= notifyExcept $ w
-                 return w'
-drops _ w = huh w
 
 quit :: Command
 quit [] (f,c) = case handle f of
@@ -147,13 +115,6 @@ goes [dir] w = case go dir w of
   Right w' -> do (++" goes "++dir++".") . name . focus >>= notifyExcept $ w
                  looks [] w' >>= ((++" arrives.") . name . focus >>= notifyExcept)
 goes _ w = huh w
-
-leaves :: Command
-leaves [] w = case exit w of
-  Left err -> notify err w
-  Right w' -> do (++ " exits.") . name . focus >>= notifyExcept $ w
-                 looks [] w' >>= ((++" arrives from " ++ (name.focus.zUp'$w)++".") . name . focus >>= notifyExcept)
-leaves _ w = huh w
 
 enters :: Command
 enters [n] w = case enter (matchName n) w of
