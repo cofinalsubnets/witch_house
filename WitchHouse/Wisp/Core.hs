@@ -166,6 +166,7 @@ _eval [v] f env
                                  (Left err,_) -> (Left err,env)
                                  (_,Left err) -> (Left err,env)
 
+    _apply nil@(Slist []) = (return nil, env)
     _apply _ = error "_eval: _apply: unexpected pattern"
 
 _eval a _ e = (Left $ "eval: wrong number of arguments: " ++ show (length a) ++ " for 1", e)

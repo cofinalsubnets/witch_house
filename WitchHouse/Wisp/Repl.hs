@@ -6,7 +6,7 @@ import System.IO
 
 repl :: IO ()
 repl = loop toplevel
-  where loop bs = do putStr "\n>> "
+  where loop bs = do putStr "\n> "
                      hFlush stdout
                      l <- getLine
                      case l of

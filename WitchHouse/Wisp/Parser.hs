@@ -7,8 +7,10 @@ import Control.Applicative hiding ((<|>), many, optional)
 
 parseWisp :: String -> Either ParseError Sval
 parseWisp = parse wisp ""
+
+wisp :: GenParser Char st Sval
+wisp = optional whitespace *> expr <* optional whitespace
   where
-    wisp = optional whitespace *> expr <* optional whitespace
 
     whitespace = many1 $ oneOf " \n\t\r"
 
@@ -18,7 +20,13 @@ parseWisp = parse wisp ""
     quotedExpr = (\v -> Slist [Ssym "quote", v]) `fmap` (quote *> expr)
       where quote = char '\''
 
-    sexp = fmap Slist $ char '(' *> optional whitespace *> expr `sepEndBy` whitespace <* char ')'
+    sexp = fmap Slist $ char '(' *> optional wsOrComment *> expr `sepEndBy` wsOrComment <* char ')'
+
+    wsOrComment = do whitespace
+                     optional $ do char ';'
+                                   many (noneOf "\n\r")
+                                   char '\n' <|> char '\r'
+                     optional whitespace
 
     atom = str <|> number <|> symbol <|> true <|> false
 
