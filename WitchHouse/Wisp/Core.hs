@@ -2,7 +2,6 @@
 -- Wisp is a special-purpose Lisp for scripting object behaviour in witch_house.
 module WitchHouse.Wisp.Core
 ( coreBinds
-, evalList
 , p_eval
 , p_apply
 , gc
@@ -59,10 +58,9 @@ f_set = Sform $ \vs f env -> case vs of
         findBind nm n e = let (bs,n') = e M.! n in if nm `M.member` bs then Just n else findBind nm n' e
 
 fold_num :: (Int -> Int -> Int) -> Sval
-fold_num op = Sprim $ \vs _ env ->
-  let ret = do tc_fail (and . map tc_num) vs
-               return . Snum . foldl1 op $ map (\(Snum n) -> n) vs
-  in return (ret,env)
+fold_num op = Sprim $ \vs _ env -> return . (,env) $ do
+  tc_fail (and . map tc_num) vs
+  return . Snum . foldl1 op $ map (\(Snum n) -> n) vs
 
 p_err :: Sval
 p_err = Sprim $ \err _ env -> return $ case err of
@@ -71,10 +69,9 @@ p_err = Sprim $ \err _ env -> return $ case err of
   
 
 p_cat :: Sval
-p_cat = Sprim $ \vs _ e ->
-  let ret = do tc_fail (and . map tc_str) vs
-               return . Sstring $ concatMap (\(Sstring s) -> s) vs
-  in return (ret, e)
+p_cat = Sprim $ \vs _ e -> return . (,e) $ do
+  tc_fail (and . map tc_str) vs
+  return . Sstring $ concatMap (\(Sstring s) -> s) vs
 
 p_null :: Sval
 p_null = Sprim $ \vs _ e -> return $ case vs of
@@ -102,7 +99,13 @@ f_if = Sform $ \vs f env -> case vs of
   _ -> return (Left $ "if: bad conditional syntax: " ++ show (Slist $ (Ssym "if"):vs), env)
 
 f_begin :: Sval
-f_begin = Sform $ \sv f env -> run (foldl1 (>>) $ map (\o -> p_apply p_eval [o] f) sv) env
+f_begin = Sform $ \sv f -> run $ foldl1 (>>) $ map (\o -> p_apply p_eval [o] f) sv
+
+p_arity :: Sval
+p_arity = Sprim $ \sv _ env -> case sv of
+  [Sfunc as _ _] -> return (Right . Snum . length $ takeWhile (\s -> s /= ".") as, env)
+  [s] -> return (Left $ "Bad type: " ++ show s, env)
+  as -> return (Left $ "Wrong number of arguments: " ++ show (length as) ++ " for 1", env)
 
 w_apply :: Sval
 w_apply = Sprim $ \sv f env -> case sv of
@@ -110,10 +113,9 @@ w_apply = Sprim $ \sv f env -> case sv of
   _ -> return (Left $ "Bad arguments: " ++ show sv, env)
 
 -- | Function application.
-p_apply :: Sval -> [Sval] -> Int -> Expr (Either String Sval)
+p_apply :: Sval -> [Sval] -> Int -> Expr (Either String) Sval
 
 p_apply (Sprim f) vs i = Expr $ f vs i -- primitive fn application - the easy case!
-p_apply (Sform f) vs i = Expr $ f vs i
 
 p_apply (Sfunc ps body fe) vs _ = Expr $ apply posArgs splat vs
   where
@@ -129,9 +131,9 @@ p_apply (Sfunc ps body fe) vs _ = Expr $ apply posArgs splat vs
                         (n,env') = pushFrame frame env
                     in _eval [Slist ((Ssym "begin"):body)] n env'
 
-    pushFrame f e = let n = succ (last $ M.keys e) in (n, M.insert n f e)
+    pushFrame f e = let n = succ . last $ M.keys e in (n, M.insert n f e)
 
-p_apply v _ _ = Expr $ \env -> return (Left $ "Non-applicable value: " ++ show v, env)
+p_apply v _ _ = Expr $ return  . (Left $ "Non-applicable value: " ++ show v,)
 
 
 p_eval :: Sval
@@ -176,15 +178,9 @@ _eval a _ e = return (Left $ "eval: wrong number of arguments: " ++ show (length
 
 envLookup :: String -> Int -> Env -> Maybe Sval
 envLookup _ (-1) _ = Nothing 
-envLookup s f env = let (binds,nxt) = env M.! f
-  in case M.lookup s binds of Nothing -> envLookup s nxt env
-                              Just v -> Just v
-
-evalList :: [Sval] -> Int -> Env -> IO (Either String [Sval])
-evalList vs f env = do
-  let acc (l,s) m = run m s >>= \(r,s') -> return (r:l,s')
-  (vs',_) <- foldM acc ([],env) $ map (\o -> p_apply p_eval [o] f) vs
-  return $ sequence (reverse vs')
+envLookup s f env = let (binds,nxt) = env M.! f in
+  case M.lookup s binds of Nothing -> envLookup s nxt env
+                           Just v -> Just v
 
 -- | VERY primitive reference-counting garbage collection.
 gc :: Env -> Env
@@ -224,9 +220,10 @@ coreBinds = M.fromList $
   , ("null?",  p_null  )
   , ("cons", p_cons    )
   , ("error", p_err )
+  , ("arity", p_arity)
   ]
 
-{- TYPE PREDICATES -}
+{- type predicates -}
 
 tc_str :: Sval -> Bool
 tc_str s = case s of { Sstring _ -> True; _ -> False }
@@ -255,7 +252,10 @@ tc_fail p v = if p v then return () else Left $ "Bad type: " ++ show v
 
 check :: (Sval -> Bool) -> Sval
 check p = Sprim $ \vs f e -> do
-  vs' <- evalList vs f e 
+  vs' <- do
+    let acc (l,s) m = run m s >>= \(r,s') -> return (r:l,s')
+    (vs',_) <- foldM acc ([],e) $ map (\o -> p_apply p_eval [o] f) vs
+    return . sequence $ reverse vs'
   case vs' of 
     Right vs'' -> return (return . Sbool $ all p vs'', e)
     Left err -> return (Left err,e)

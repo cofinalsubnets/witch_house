@@ -7,8 +7,6 @@ module WitchHouse.World.Interop
 , notifyExcept
 ) where
 
--- SRSLY consider whether we really want to do it like this.
-import System.IO.Unsafe
 
 import WitchHouse.Types
 import WitchHouse.World.Core
@@ -19,7 +17,10 @@ import Data.List (delete)
 import qualified Data.Map as M
 
 import System.IO (hPutStrLn, hFlush)
+import System.IO.Unsafe (unsafePerformIO)
 
+-- wisp is in IO but this is actually pure when run against
+-- the default toplevel.
 objlevel :: Env
 objlevel = snd . unsafePerformIO $ run defs toplevel'
   where
@@ -34,7 +35,9 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
       , ("w-up", wisp_w_up)
       , ("w-dn", wisp_w_dn)
       , ("location", wisp_w_loc)
+      , ("find", wisp_find)
       ]
+
     defs = runWisp . unlines $
       [ "(begin"
 
@@ -166,6 +169,28 @@ wisp_notify_loc = Sprim $ \vs _ e -> case vs of
                                          return (Right . Sworld $ rw ,e)
   l -> return (Left $ "bad arguments: " ++ show l, e)
 
+wisp_find :: Sval
+wisp_find = Sprim $ \vs f e -> 
+  let tl = fst $ e M.! 0
+      self = M.lookup "*self*" tl
+  in case self of
+    Just (Sworld w) -> case vs of
+      [Sstring s] -> return (Sworld `fmap` find (matchName s) Global w, e)
+      [pr@(Sfunc _ _ _)] -> return (Sworld `fmap` ioFind, e)
+        -- kind of gross & weird but we actually _want_ users to be able to
+        -- perform arbitrary side effects here.
+        where ioFind = find (\o -> wb . fst . unsafePerformIO $ run (p_apply pr [Sworld (o,[])] f) e) Global w
+              wb (Right (Sbool False)) = False
+              wb (Left _) = False
+              wb _ = True
+      [a] -> return (Left $ "Bad argument type: " ++ show a, e)
+      as -> return (Left $ "Wrong number of arguments: " ++ show (length as) ++ " for 1",e)
+    Just v -> return (Left $ "Bad value for *self*: " ++ show v,e)
+    Nothing -> return (Left "Missing value for *self*",e)
+
+
+{- haskell-level notification primitives -}
+
 notify :: String -> World -> IO World
 notify msg w = case handle . fst $ w of Nothing -> return w
                                         Just h -> hPutStrLn h msg >> hFlush h >> return w
@@ -173,5 +198,4 @@ notify msg w = case handle . fst $ w of Nothing -> return w
 notifyExcept :: String -> World -> IO World
 notifyExcept msg w = case zUp w of Left _ -> return w
                                    Right w' -> mapM_ (notify msg) (delete w $ zDn w') >> return w
-
 

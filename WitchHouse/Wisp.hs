@@ -139,7 +139,7 @@ repl = loop toplevel
                                  (Left err, bs') -> putStr err >> loop bs'
                                  (Right v, bs') -> putStr (show v) >> loop bs'
 
-runWisp :: String -> Expr (Either String Sval)
+runWisp :: String -> Expr (Either String) Sval
 runWisp s = Expr $ \e -> case parseWisp s of
   Right sv -> do (v,e') <- run (p_apply p_eval [sv] 0) e
                  return (v, gc e')

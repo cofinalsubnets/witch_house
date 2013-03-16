@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs, FlexibleInstances #-}
 module WitchHouse.Types
 ( Obj(..)
 , World
@@ -36,26 +37,29 @@ type World = (Obj, [Obj])
 
 type WT = World -> Either String World
 
-data Scope = Self | Location | Distance Int | Global deriving (Show,Eq,Ord)
+data Scope = Self
+           | Location
+           | Distance Int
+           | Global deriving (Show,Eq,Ord)
 
 -- TYPES FOR WISP
 
 type Frame = (Map String Sval, Int)
 type Env = Map Int Frame
 
-newtype Expr a = Expr { run :: Env -> IO (a, Env) }
+data Expr m a = Monad m => Expr { run :: Env -> IO (m a, Env) }
 
 type Htrans = [Sval] -> Int -> Env -> IO (Either String Sval, Env)
 -- type for wisp values
-data Sval = Snum Int |
-            Sstring String |
-            Ssym String |
-            Slist [Sval] |
-            Sbool Bool |
-            Sfunc [String] [Sval] Int |
-            Sform Htrans |
-            Sprim Htrans |
-            Sworld World
+data Sval = Snum    Int
+          | Sstring String
+          | Ssym    String
+          | Slist   [Sval]
+          | Sbool   Bool
+          | Sfunc   [String] [Sval] Int
+          | Sform   Htrans
+          | Sprim   Htrans
+          | Sworld  World
 
 instance Show Sval where
   show (Snum n)    = show n
@@ -63,7 +67,7 @@ instance Show Sval where
   show (Sbool b)   = if b then "#t" else "#f"
   show (Ssym s)    = s
   show (Slist l)   = "(" ++ (unwords . map show $ l) ++ ")"
-  show (Sfunc as b f) = "(lambda " ++ show (Slist $ map Ssym as) ++ " " ++ (unwords $ map show b) ++ ") ;; " ++ show f
+  show (Sfunc as b f) = concat ["(lambda ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
   show (Sprim _) = "#<prim fn>"
   show (Sworld _) = "#<world>"
   show (Sform _) = "#<form>"
@@ -75,9 +79,12 @@ instance Eq Sval where
   (Ssym a)    == (Ssym b)    = a == b
   (Slist a)   == (Slist b)   = a == b
   (Sworld a)  == (Sworld b)  = (objId.fst $ a) == (objId.fst $ b)
+  (Sfunc a b c) == (Sfunc d e f) = (a,b,c) == (d,e,f)
   _ == _ = False
 
-instance Monad Expr where
-  return v = Expr $ \e -> return (v,e)
-  a >>= b = Expr $ \e0 -> run a e0 >>= \(v1,e1) -> run (b v1) e1
+instance Monad (Expr (Either String)) where
+  return v = Expr $ \e -> return (return v,e)
+  a >>= b = Expr $ \e0 -> do (v1,e1) <- run a e0 
+                             case v1 of Left err -> return (Left err,e1)
+                                        Right v -> run (b v) e1
 
