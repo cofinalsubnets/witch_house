@@ -5,7 +5,6 @@ module WitchHouse.Commands
 ) where
 
 import WitchHouse.World
-import WitchHouse.Wisp
 import WitchHouse.Types
 import Data.List (isPrefixOf, intercalate)
 import Data.Map (Map)

@@ -1,24 +1,21 @@
-{-# LANGUAGE BangPatterns #-}
 module WitchHouse.Wisp
 ( toplevel
-, invoke
 , runWisp
-, evalWisp
+, repl
 ) where
 
 import WitchHouse.Types
 import WitchHouse.Wisp.Core
 import WitchHouse.Wisp.Parser
-import WitchHouse.Wisp.WorldOp
 
-import Data.Map (fromList, union, (!), insert)
-import qualified Data.Map as M
+import Data.Map (fromList)
+
+import System.IO -- for the repl
 
 toplevel :: Env
 toplevel = snd $ run defs base
   where 
-    base = fromList [(0, (binds, -1))]
-    binds = coreBinds `union` worldOps
+    base = fromList [(0, (coreBinds, -1))]
     defs = runWisp . unlines $
       [ "(begin"
 
@@ -124,89 +121,24 @@ toplevel = snd $ run defs base
       , "      (list (apply f (cons h t))"
       , "            (apply g (cons h t)))))"
 
-      , "  (define (quiet-exit) (set! *self* (w-up *self*)))"
-      , "  (define (enter n) (set! *self* (w-dn *self* (if (world? n) (name n) n))))"
-      , "  (define (join strs j)"
-      , "    (fold (lambda (s1 s2) (cat s1 j s2)) (car strs) (cdr strs)))"
-
-      , "  (define (take w)"
-      , "    (enter"
-      , "      (notify-room (cat \"You take \" *name* \".\")"
-      , "                   (cat (name w) \" takes \" *name* \".\")"
-      , "                   w)))"
-      
-      , "  (define (drop w)"
-      , "    (quiet-exit)"
-      , "    (notify-room (cat \"You drop \" *name* \".\")"
-      , "                 (cat (name w) \" drops \" *name* \".\")"
-      , "                 w))"
-
-      , "  (define (exit)"
-      , "    (notify-room \"\""
-      , "                 (cat *name* \" arrives.\")"
-      , "                 (begin"
-      , "                   (set! *self*"
-      , "                         (w-up (notify-room \"\""
-      , "                                            (cat *name* \" exits.\")"
-      , "                                            *self*)))"
-      , "                   (look))))"
-
-      , "  (define (look)"
-      , "    (notify (join (append (list (name (location *self*))"
-      , "                                (desc (location *self*)))"
-      , "                          (map (lambda (i) (cat (name i) \" is here.\"))"
-      , "                               (contents (location *self*))))"
-      , "                  \"\n\")"
-      , "            *self*))"
-
-
-      , "  (define (whoami)"
-      , "    (notify *name* *self*))"
-
-      , "  (define (inventory)"
-      , "    ((lambda (i)"
-      , "       (if (null? i)"
-      , "           (notify \"You aren't carrying anything.\" *self*)"
-      , "           (notify (join (cons \"You are carrying:\""
-      , "                               (map name i))"
-      , "                         \"\n\")"
-      , "                   *self*)))"
-      , "     (contents *self*)))" 
       , ")"
       ]
 
-invoke :: String -> [Sval] -> World -> Either String (Sval,World)
-invoke f sv w = let (o,cs) = bindAttrs w
-  in case envLookup f 0 (bindings o) of
-       Nothing -> Left $ "Unable to resolve symbol: " ++ f
-       Just fn -> case run (p_apply fn sv 0) (bindings o) of
-                    (Right s,env) -> Right (s, applyAttrs env (o,cs))
-                    (Left err,_)  -> Left err
+repl :: IO ()
+repl = loop toplevel
+  where loop bs = do putStr "\n> "
+                     hFlush stdout
+                     l <- getLine
+                     case l of
+                       "\\env" -> putStr (show bs) >> loop bs
+                       "\\quit" -> return ()
+                       "" -> loop bs
+                       _ -> case run (runWisp l) bs of
+                              (Left err, bs') -> putStr err >> loop bs'
+                              (Right v, bs') -> putStr (show v) >> loop bs'
 
 runWisp :: String -> Expr (Either String Sval)
 runWisp s = Expr $ \e -> case parseWisp s of
   Right sv -> let (v,e') = run (p_apply p_eval [sv] 0) e in (v, gc e')
   Left err -> (Left $ show err, e)
-
-evalWisp :: String -> WT
-evalWisp s w = let (o,cs) = bindAttrs w
-  in case run (runWisp s) (bindings o) of
-       (Right (Sworld !w'), env) -> return w' >> Right (applyAttrs env (o,cs))
-       (Right _, env) -> Right (applyAttrs env (o,cs))
-       (Left err, _) -> Left err
-
-bindAttrs :: World -> World
-bindAttrs (o,cs) = let bs = fromList [ ("*name*", Sstring $ name o)
-                                     , ("*desc*", Sstring $ description o)
-                                     , ("*self*", Sworld (o,cs))
-                                     ]
-                       (tl,_) = bindings o ! 0
-  in (o{bindings = insert 0 ((bs `union` tl),-1) (bindings o)},cs)
-
-applyAttrs :: Env -> World -> World
-applyAttrs b w = apName . apDesc $ apWrld
-  where (tl,_) = b ! 0
-        apWrld = case M.lookup "*self*" tl of { Just (Sworld (f,cs)) -> (f{bindings = b},cs) ; _ -> w }
-        apName w'@(f,cs) = case M.lookup "*name*" tl of { Just (Sstring n) -> (f{name = n},cs); _ -> w' }
-        apDesc w'@(f,cs) = case M.lookup "*desc*" tl of { Just (Sstring d) -> (f{description = d},cs); _ -> w' }
 

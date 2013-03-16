@@ -17,8 +17,8 @@ import System.IO
 
 import WitchHouse.Types
 import WitchHouse.World
-import WitchHouse.Persistence
-import WitchHouse.Wisp.Repl
+import WitchHouse.Persistence (connect, disconnect, loadWorld)
+import WitchHouse.Wisp (repl)
 
 data Options = Options { portNo       :: Int
                        , dbPath       :: FilePath
