@@ -74,23 +74,29 @@ help _ = notify helpMsg
 send :: Command
 send [actn,t] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
-  Right w' -> case invoke actn [Sworld w] w' of
-                Left err -> notify err w
-                Right ((Sworld !w''),w''') -> return w'' >> return w'''
-                Right (sv,w'') -> notify ("Bad return type: " ++ show sv) w >> return w''
-send [actn] w = case invoke actn [] w of
-  Left err -> notify err w
-  Right ((Sworld !w''),w''') -> return w'' >> return w'''
-  Right (sv,w'') -> notify ("Bad return type: " ++ show sv) w >> return w''
+  Right w' -> do res <- invoke actn [Sworld w] w'
+                 case res of
+                   Left err -> notify err w
+                   Right (_,w'') -> return w''
+
+send [actn] w = do
+  res <- invoke actn [] w
+  case res of
+    Left err -> notify err w
+    Right (_,w') -> return w'
 send _ w = huh w
 
 oEval :: Command
-oEval [t,s] w = case find (matchName t) (Distance 2) w >>= evalWisp s of
+oEval [t,s] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
-  Right w' -> return w'
-oEval [s] w = case evalWisp s w of
-  Left err -> notify err w
-  Right w' -> return w'
+  Right w' -> do res <- evalWisp s w'
+                 case res of Left err -> notify err w
+                             Right w'' -> return w''
+oEval [s] w = do
+  res <- evalWisp s w
+  case res of
+    Left err -> notify err w
+    Right w' -> return w'
 oEval _ w = huh w
 
 env :: Command

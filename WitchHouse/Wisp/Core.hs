@@ -10,6 +10,7 @@ module WitchHouse.Wisp.Core
 ) where
 
 import WitchHouse.Types
+import Control.Monad
 
 import qualified Data.Map as M
 import Data.List
@@ -18,39 +19,41 @@ import Data.List
 {- PRIMITIVES -}
 
 f_quote :: Sval
-f_quote = Sform $ \vs _ e ->
+f_quote = Sform $ \vs _ e -> return $
   case vs of [v] -> (Right v,e)
              _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
 
 f_lambda :: Sval
-f_lambda = Sform $ \vs f env ->
+f_lambda = Sform $ \vs f env -> return $
   case vs of (Slist ps):svs -> let ps' = map (\(Ssym s) -> s) ps
                                in (return $ Sfunc ps' svs f, env)
              _ -> (Left "Malformed lambda exp", env)
 
 f_define :: Sval
 f_define = Sform $ \vs f env -> case vs of
-  [Ssym s, xp] -> let (xv,env') = run (p_apply p_eval [xp] f) env
-                  in case xv of
-                       Right v -> let (frame, p) = env M.! f
-                                      frame' = M.insert s v frame
-                                      env'' = M.insert f (frame',p) env'
-                                  in (Right v, env'')
-                       Left e -> (Left e, env)
+  [Ssym s, xp] -> do
+    (xv,env') <- run (p_apply p_eval [xp] f) env
+    case xv of
+      Right v -> let (frame, p) = env M.! f
+                     frame' = M.insert s v frame
+                     env'' = M.insert f (frame',p) env'
+                 in return (Right v, env'')
+      Left e -> return (Left e, env)
   (Slist (h:ss)):xps -> run (p_apply f_define [h, Slist ([Ssym "lambda", Slist ss] ++ xps)] f) env
-  _ -> (Left "Bad definition syntax", env)
+  _ -> return (Left "Bad definition syntax", env)
 
 
 f_set :: Sval
 f_set = Sform $ \vs f env -> case vs of
-  [Ssym s, xp] -> let (xv,env') = run (p_apply p_eval [xp] f) env
-                  in case xv of
-                       Right v -> case findBind s f env' of
-                                    Nothing -> (Left $ "Unable to resolve symbol: " ++ s, env)
-                                    Just n -> let (fr,n') = env M.! n
-                                              in (Right v, M.insert n (M.insert s v fr, n') env')
-                       Left e -> (Left e, env)
-  _ -> (Left "Bad definition syntax", env)
+  [Ssym s, xp] -> do
+    (xv,env') <- run (p_apply p_eval [xp] f) env
+    return $ case xv of
+      Right v -> case findBind s f env' of
+                   Nothing -> (Left $ "Unable to resolve symbol: " ++ s, env)
+                   Just n -> let (fr,n') = env M.! n
+                             in (Right v, M.insert n (M.insert s v fr, n') env')
+      Left e -> (Left e, env)
+  _ -> return (Left "Bad definition syntax", env)
 
   where findBind _ (-1) _ = Nothing
         findBind nm n e = let (bs,n') = e M.! n in if nm `M.member` bs then Just n else findBind nm n' e
@@ -59,10 +62,10 @@ fold_num :: (Int -> Int -> Int) -> Sval
 fold_num op = Sprim $ \vs _ env ->
   let ret = do tc_fail (and . map tc_num) vs
                return . Snum . foldl1 op $ map (\(Snum n) -> n) vs
-  in (ret,env)
+  in return (ret,env)
 
 p_err :: Sval
-p_err = Sprim $ \err _ env -> case err of
+p_err = Sprim $ \err _ env -> return $ case err of
   [Sstring e] -> (Left ("ERROR: "++e), env)
   _ -> (Left $ "(error) Bad arguments: " ++ show err, env)
   
@@ -71,40 +74,40 @@ p_cat :: Sval
 p_cat = Sprim $ \vs _ e ->
   let ret = do tc_fail (and . map tc_str) vs
                return . Sstring $ concatMap (\(Sstring s) -> s) vs
-  in (ret, e)
+  in return (ret, e)
 
 p_null :: Sval
-p_null = Sprim $ \vs _ e -> case vs of
+p_null = Sprim $ \vs _ e -> return $ case vs of
   [Slist []] -> (return $ Sbool True, e)
   [Slist _] -> (return $ Sbool False, e)
   [v] -> (Left $ "Bad argument type: " ++ show v, e)
   _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
 
 p_cons :: Sval
-p_cons = Sprim $ \vs _ e -> case vs of
+p_cons = Sprim $ \vs _ e -> return $ case vs of
   [s,Slist l] -> (Right (Slist (s:l)), e)
   [_,l] -> (Left $ "Bad type (expected list): " ++ show l, e)
   _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 2", e)
 
 p_eq :: Sval
-p_eq = Sprim $ \vs _ e -> (return $ Sbool . and . zipWith (==) vs $ drop 1 vs, e)
+p_eq = Sprim $ \vs _ e -> return (return $ Sbool . and . zipWith (==) vs $ drop 1 vs, e)
 
 f_if :: Sval
-f_if = Sform $ \vs f env ->
-  case vs of
-    [cond, y, n] -> let (v,_) = run (p_apply p_eval [cond] f) env
-      in case v of Left err -> (Left err, env)
-                   Right v' -> case v' of (Sbool False) -> run (p_apply p_eval [n] f) env
-                                          _             -> run (p_apply p_eval [y] f) env
-    _ -> (Left $ "if: bad conditional syntax: " ++ show (Slist $ (Ssym "if"):vs), env)
+f_if = Sform $ \vs f env -> case vs of
+  [cond, y, n] -> do
+    (v,_) <- run (p_apply p_eval [cond] f) env
+    case v of Left err -> return (Left err, env)
+              Right v' -> case v' of (Sbool False) -> run (p_apply p_eval [n] f) env
+                                     _             -> run (p_apply p_eval [y] f) env
+  _ -> return (Left $ "if: bad conditional syntax: " ++ show (Slist $ (Ssym "if"):vs), env)
 
 f_begin :: Sval
-f_begin = Sform $ \sv f -> run (foldl1 (>>) $ map (\o -> p_apply p_eval [o] f) sv)
-  
+f_begin = Sform $ \sv f env -> run (foldl1 (>>) $ map (\o -> p_apply p_eval [o] f) sv) env
+
 w_apply :: Sval
 w_apply = Sprim $ \sv f env -> case sv of
   [a,Slist l] -> run (p_apply a l f) env
-  _ -> (Left $ "Bad arguments: " ++ show sv, env)
+  _ -> return (Left $ "Bad arguments: " ++ show sv, env)
 
 -- | Function application.
 p_apply :: Sval -> [Sval] -> Int -> Expr (Either String Sval)
@@ -117,9 +120,9 @@ p_apply (Sfunc ps body fe) vs _ = Expr $ apply posArgs splat vs
     (posArgs, splat) = break (== ".") ps
     apply pos var sup env
       | (not $ null var) && (not $ length var == 2) =
-          (Left $ "Bad variadic parameter syntax: " ++ show ps, env)
+          return (Left $ "Bad variadic parameter syntax: " ++ show ps, env)
       | length pos > length sup || null var && length pos < length sup =
-          (Left $ "(apply) Wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos), env)
+          return (Left $ "(apply) Wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos), env)
       | otherwise = let posV = pos `zip` vs
                         varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
                         frame = (M.fromList (varV ++ posV), fe)
@@ -128,19 +131,19 @@ p_apply (Sfunc ps body fe) vs _ = Expr $ apply posArgs splat vs
 
     pushFrame f e = let n = succ (last $ M.keys e) in (n, M.insert n f e)
 
-p_apply v _ _ = Expr $ \env -> (Left $ "Non-applicable value: " ++ show v, env)
+p_apply v _ _ = Expr $ \env -> return (Left $ "Non-applicable value: " ++ show v, env)
 
 
 p_eval :: Sval
 p_eval = Sprim _eval
 
-_eval :: [Sval] -> Int -> Env -> (Either String Sval, Env)
+_eval :: [Sval] -> Int -> Env -> IO (Either String Sval, Env)
 _eval [v] f env
-  | prim v    = (return v, env)
+  | prim v    = return (return v, env)
   | spec v    = _apply_spec v
   | tc_sym v  = _eval_var v
   | tc_list v = _apply v
-  | otherwise = (Left $ "Bad argument type: " ++ show v, env)
+  | otherwise = return (Left $ "Bad argument type: " ++ show v, env)
 
   where
 
@@ -151,25 +154,24 @@ _eval [v] f env
     _apply_spec (Slist ((Ssym s):t)) = let Sform form = specialForms M.! s in form t f env
     _apply_spec _ = error "_eval: _apply_spec: unexpected pattern"
 
-    _eval_var (Ssym sv) = case envLookup sv f env of
+    _eval_var (Ssym sv) = return $ case envLookup sv f env of
                             Just val -> (return val, env)
                             Nothing -> (Left $ "Unable to resolve symbol: " ++ sv, env)
     _eval_var _ = error "_eval: _eval_var: unexpected pattern"
 
-    _apply (Slist (o:vs)) = let (op, env') = _eval [o] f env
-                                (vals,envs) = unzip $ acc env' vs
-                                acc e (r:rs) = let p@(_,e') = _eval [r] f e in p:(acc e' rs)
-                                acc _ [] = []
+    _apply (Slist (o:vs)) = do
+      (op, _) <- _eval [o] f env
+      vals <- mapM (\val -> fst `fmap` _eval [val] f env) vs
 
-                            in case (op,sequence vals) of
-                                 (Right op',Right vals') -> run (p_apply op' vals' f) (last envs)
-                                 (Left err,_) -> (Left err,env)
-                                 (_,Left err) -> (Left err,env)
+      case (op,sequence vals) of
+        (Right op',Right vals') -> run (p_apply op' vals' f) env
+        (Left err,_) -> return (Left err,env)
+        (_,Left err) -> return (Left err,env)
 
-    _apply nil@(Slist []) = (return nil, env)
+    _apply nil@(Slist []) = return (return nil, env)
     _apply _ = error "_eval: _apply: unexpected pattern"
 
-_eval a _ e = (Left $ "eval: wrong number of arguments: " ++ show (length a) ++ " for 1", e)
+_eval a _ e = return (Left $ "eval: wrong number of arguments: " ++ show (length a) ++ " for 1", e)
 
 
 envLookup :: String -> Int -> Env -> Maybe Sval
@@ -178,10 +180,11 @@ envLookup s f env = let (binds,nxt) = env M.! f
   in case M.lookup s binds of Nothing -> envLookup s nxt env
                               Just v -> Just v
 
-evalList :: [Sval] -> Int -> Env -> Either String [Sval]
-evalList vs f env = let (vs',_) = foldl acc ([],env) $ map (\o -> p_apply p_eval [o] f) vs
-                        acc (l,s) m = let (r,s') = run m s in (r:l,s')
-                    in sequence (reverse vs')
+evalList :: [Sval] -> Int -> Env -> IO (Either String [Sval])
+evalList vs f env = do
+  let acc (l,s) m = run m s >>= \(r,s') -> return (r:l,s')
+  (vs',_) <- foldM acc ([],env) $ map (\o -> p_apply p_eval [o] f) vs
+  return $ sequence (reverse vs')
 
 -- | VERY primitive reference-counting garbage collection.
 gc :: Env -> Env
@@ -251,5 +254,9 @@ tc_fail :: Show a => (a -> Bool) -> a -> Either String ()
 tc_fail p v = if p v then return () else Left $ "Bad type: " ++ show v
 
 check :: (Sval -> Bool) -> Sval
-check p = Sprim $ \vs f e -> case evalList vs f e of { Right vs' -> (return . Sbool $ all p vs', e); Left err -> (Left err,e) }
+check p = Sprim $ \vs f e -> do
+  vs' <- evalList vs f e 
+  case vs' of 
+    Right vs'' -> return (return . Sbool $ all p vs'', e)
+    Left err -> return (Left err,e)
 

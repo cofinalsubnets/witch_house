@@ -15,6 +15,8 @@ import Data.List hiding (find)
 import qualified Data.List as List (find)
 import WitchHouse.Types hiding (run)
 
+import Control.Monad
+
 createNodesTable :: String
 createNodesTable = "CREATE TABLE `nodes` (`id` INTEGER PRIMARY KEY, `name` VARCHAR(255) NOT NULL, `description` TEXT NOT NULL, `location` INTEGER, `password` VARCHAR(255), `root` BOOLEAN NOT NULL, FOREIGN KEY (`location`) REFERENCES `nodes` (`id`), CHECK (`id` <> `location`));"
 
@@ -118,13 +120,15 @@ loadWorld conn = do
                              in (o,l,orig{exits = M.insert dir (objId dest) (exits orig)}):os
       addWisp js (nid,nm,wsp) = let ([(_,loc,t)],os) = partition (\(i,_,_) -> i==nid) js
                                     wstr = concat ["(define ",nm," ",wsp,")"]
-                                    r = evalWisp wstr (t,[])
-                                in case r of Right (t',_) -> (nid,loc,t'):os
-                                             Left _ -> ((nid,loc,t):os)
+                                in do r <- evalWisp wstr (t,[])
+                                      return $ case r of
+                                        Right (t',_) -> (nid,loc,t'):os
+                                        Left _ -> ((nid,loc,t):os)
       wisps = map mapWisp ws
 
       edges = map mapEdge es
   nodes <- mapM mapNode ns
+  nodes' <- foldM addWisp nodes wisps
 
-  return . mkWorld . consolidate $ foldl addEdge (foldl addWisp nodes wisps) edges
+  return . mkWorld . consolidate $ foldl addEdge nodes' edges
 

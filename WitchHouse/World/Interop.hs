@@ -21,7 +21,7 @@ import qualified Data.Map as M
 import System.IO (hPutStrLn, hFlush)
 
 objlevel :: Env
-objlevel = snd $ run defs toplevel'
+objlevel = snd . unsafePerformIO $ run defs toplevel'
   where
     tl = fst $ toplevel M.! 0
     toplevel' = M.insert 0 (objBindings `M.union` tl, -1) toplevel
@@ -91,20 +91,22 @@ objlevel = snd $ run defs toplevel'
       ]
 
 
-invoke :: String -> [Sval] -> World -> Either String (Sval,World)
+invoke :: String -> [Sval] -> World -> IO (Either String (Sval,World))
 invoke f sv w = let (o,cs) = bindAttrs w
   in case envLookup f 0 (bindings o) of
-       Nothing -> Left $ "Unable to resolve symbol: " ++ f
-       Just fn -> case run (p_apply fn sv 0) (bindings o) of
-                    (Right s,env) -> Right (s, applyAttrs env (o,cs))
-                    (Left err,_)  -> Left err
+       Nothing -> return . Left $ "Unable to resolve symbol: " ++ f
+       Just fn -> do
+         res <- run (p_apply fn sv 0) (bindings o)
+         return $ case res of
+           (Right s,env) -> Right (s, applyAttrs env (o,cs))
+           (Left err,_)  -> Left err
 
-evalWisp :: String -> WT
-evalWisp s w = let (o,cs) = bindAttrs w
-  in case run (runWisp s) (bindings o) of
-       (Right (Sworld !w'), env) -> return w' >> Right (applyAttrs env (o,cs))
-       (Right _, env) -> Right (applyAttrs env (o,cs))
-       (Left err, _) -> Left err
+evalWisp :: String -> World -> IO (Either String World)
+evalWisp s w = let (o,cs) = bindAttrs w in do
+  res <- run (runWisp s) (bindings o)
+  return $ case res of
+    (Right _, env) -> Right (applyAttrs env (o,cs))
+    (Left err, _) -> Left err
 
 bindAttrs :: World -> World
 bindAttrs (o,cs) = let bs = M.fromList [ ("*name*", Sstring $ name o)
@@ -123,46 +125,46 @@ applyAttrs b w = apName . apDesc $ apWrld
 
 
 wisp_w_up :: Sval
-wisp_w_up = Sprim $ \vs _ e -> case vs of
+wisp_w_up = Sprim $ \vs _ e -> return $ case vs of
   [Sworld w] -> (Sworld `fmap` exit w, e)
   l -> (Left $ "bad arguments: " ++ show l, e)
 
 wisp_w_loc :: Sval
-wisp_w_loc = Sprim $ \vs _ e -> case vs of
+wisp_w_loc = Sprim $ \vs _ e -> return $ case vs of
   [Sworld w] -> (Sworld `fmap` zUp w, e)
   l -> (Left $ "bad arguments: " ++ show l, e)
 
 wisp_w_dn :: Sval
-wisp_w_dn = Sprim $ \vs _ e -> case vs of
+wisp_w_dn = Sprim $ \vs _ e -> return $ case vs of
   [Sworld w, Sstring n] -> (Sworld `fmap` enter (matchName n) w, e)
   l -> (Left $ "bad arguments: " ++ show l, e)
 
 wisp_w_contents :: Sval
-wisp_w_contents = Sprim $ \vs _ e -> case vs of
+wisp_w_contents = Sprim $ \vs _ e -> return $ case vs of
   [Sworld w] -> (Right . Slist . map Sworld . zDn $ w, e)
   l -> (Left $ "bad arguments: " ++ show l, e)
 
 wisp_w_name :: Sval
-wisp_w_name = Sprim $ \vs _ e -> case vs of
+wisp_w_name = Sprim $ \vs _ e -> return $ case vs of
   [Sworld (f,_)] -> (Right . Sstring . name $ f, e)
   l -> (Left $ "bad arguments: " ++ show l, e)
 
 wisp_w_desc :: Sval
-wisp_w_desc = Sprim $ \vs _ e -> case vs of
+wisp_w_desc = Sprim $ \vs _ e -> return $ case vs of
   [Sworld (f,_)] -> (Right . Sstring . description $ f, e)
   l -> (Left $ "bad arguments: " ++ show l, e)
 
 wisp_notify :: Sval
 wisp_notify = Sprim $ \vs _ e -> case vs of
-  [Sstring s, Sworld w] -> let rw = unsafePerformIO $ notify s w
-                           in rw `seq` (Right . Sworld $ rw, e)
-  l -> (Left $ "bad arguments: " ++ show l, e)
+  [Sstring s, Sworld w] -> do rw <- notify s w
+                              return (Right . Sworld $ rw,e)
+  l -> return (Left $ "bad arguments: " ++ show l, e)
 
 wisp_notify_loc :: Sval
 wisp_notify_loc = Sprim $ \vs _ e -> case vs of
-  [Sstring s, Sstring o, Sworld w] -> let rw = unsafePerformIO $ notify s w >> notifyExcept o w
-                                      in rw `seq` (Right . Sworld $ rw , e)
-  l -> (Left $ "bad arguments: " ++ show l, e)
+  [Sstring s, Sstring o, Sworld w] -> do rw <- notify s w >> notifyExcept o w
+                                         return (Right . Sworld $ rw ,e)
+  l -> return (Left $ "bad arguments: " ++ show l, e)
 
 notify :: String -> World -> IO World
 notify msg w = case handle . fst $ w of Nothing -> return w

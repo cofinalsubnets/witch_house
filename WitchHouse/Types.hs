@@ -43,9 +43,9 @@ data Scope = Self | Location | Distance Int | Global deriving (Show,Eq,Ord)
 type Frame = (Map String Sval, Int)
 type Env = Map Int Frame
 
-newtype Expr a = Expr { run :: Env -> (a, Env) }
+newtype Expr a = Expr { run :: Env -> IO (a, Env) }
 
-type Htrans = [Sval] -> Int -> Env -> (Either String Sval, Env)
+type Htrans = [Sval] -> Int -> Env -> IO (Either String Sval, Env)
 -- type for wisp values
 data Sval = Snum Int |
             Sstring String |
@@ -55,8 +55,7 @@ data Sval = Snum Int |
             Sfunc [String] [Sval] Int |
             Sform Htrans |
             Sprim Htrans |
-            Sworld World |
-            Sactn (World -> IO World)
+            Sworld World
 
 instance Show Sval where
   show (Snum n)    = show n
@@ -66,7 +65,6 @@ instance Show Sval where
   show (Slist l)   = "(" ++ (unwords . map show $ l) ++ ")"
   show (Sfunc as b f) = "(lambda " ++ show (Slist $ map Ssym as) ++ " " ++ (unwords $ map show b) ++ ") ;; " ++ show f
   show (Sprim _) = "#<prim fn>"
-  show (Sactn _) = "#<actn>"
   show (Sworld _) = "#<world>"
   show (Sform _) = "#<form>"
 
@@ -80,6 +78,6 @@ instance Eq Sval where
   _ == _ = False
 
 instance Monad Expr where
-  return v = Expr $ \e -> (v,e)
-  a >>= b = Expr $ \e0 -> let (v1,e1) = run a e0 in run (b v1) e1
+  return v = Expr $ \e -> return (v,e)
+  a >>= b = Expr $ \e0 -> run a e0 >>= \(v1,e1) -> run (b v1) e1
 

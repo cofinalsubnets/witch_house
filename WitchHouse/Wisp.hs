@@ -11,9 +11,10 @@ import WitchHouse.Wisp.Parser
 import Data.Map (fromList)
 
 import System.IO -- for the repl
+import System.IO.Unsafe -- for toplevel defs
 
 toplevel :: Env
-toplevel = snd $ run defs base
+toplevel = snd . unsafePerformIO $ run defs base
   where 
     base = fromList [(0, (coreBinds, -1))]
     defs = runWisp . unlines $
@@ -133,12 +134,14 @@ repl = loop toplevel
                        "\\env" -> putStr (show bs) >> loop bs
                        "\\quit" -> return ()
                        "" -> loop bs
-                       _ -> case run (runWisp l) bs of
-                              (Left err, bs') -> putStr err >> loop bs'
-                              (Right v, bs') -> putStr (show v) >> loop bs'
+                       _ -> do res <- run (runWisp l) bs
+                               case res of
+                                 (Left err, bs') -> putStr err >> loop bs'
+                                 (Right v, bs') -> putStr (show v) >> loop bs'
 
 runWisp :: String -> Expr (Either String Sval)
 runWisp s = Expr $ \e -> case parseWisp s of
-  Right sv -> let (v,e') = run (p_apply p_eval [sv] 0) e in (v, gc e')
-  Left err -> (Left $ show err, e)
+  Right sv -> do (v,e') <- run (p_apply p_eval [sv] 0) e
+                 return (v, gc e')
+  Left err -> return (Left $ show err, e)
 
