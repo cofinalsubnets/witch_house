@@ -70,9 +70,10 @@ data Sval = Snum    Int
           | Ssym    String
           | Slist   [Sval]
           | Sbool   Bool
-          | Sfunc   [String] [Sval] Int
-          | Sform   Htrans
-          | Sprim   Htrans
+          | Sfunc   { params :: [String], body :: [Sval], frameNo :: Int }
+          | Smacro  { params :: [String], body :: [Sval], frameNo :: Int }
+          | Sform   { transform :: Htrans }
+          | Sprim   { transform :: Htrans }
           | Sworld  World
 
 instance Show Sval where
@@ -82,6 +83,7 @@ instance Show Sval where
   show (Ssym s)    = s
   show (Slist l)   = "(" ++ (unwords . map show $ l) ++ ")"
   show (Sfunc as b f) = concat ["(lambda ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
+  show (Smacro as b f) = concat ["(macro ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
   show (Sprim _) = "#<prim fn>"
   show (Sworld _) = "#<world>"
   show (Sform _) = "#<form>"
@@ -94,6 +96,7 @@ instance Eq Sval where
   (Slist a)   == (Slist b)   = a == b
   (Sworld a)  == (Sworld b)  = (objId.fst $ a) == (objId.fst $ b)
   (Sfunc a b c) == (Sfunc d e f) = (a,b,c) == (d,e,f)
+  (Smacro a b c) == (Smacro d e f) = (a,b,c) == (d,e,f)
   _ == _ = False
 
 instance Monad (Expr (Either String)) where

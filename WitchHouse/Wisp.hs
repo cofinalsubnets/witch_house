@@ -22,12 +22,20 @@ toplevel = snd . unsafePerformIO $ run defs base
 
       , "  (define (list . l) l)"
 
+      , "  (define cond"
+      , "    (macro (case . cases)"
+      , "      (fold (lambda (l c)"
+      , "              `(if ,(car c)"
+      , "                   ,(cons 'begin (cdr c))"
+      , "                   ,l))"
+      , "            '(error \"cond: fell through\")"
+      , "            (reverse (cons case cases)))))"
+
+
       , "  (define (member e lst)"
-      , "    (if (null? lst)"
-      , "        #f"
-      , "        (if (= (car lst) e)"
-      , "            lst"
-      , "            (member e (cdr lst)))))"
+      , "    (cond ((null? lst) #f)"
+      , "          ((= (car lst) e) lst)"
+      , "          (#t (member e (cdr lst)))))"
 
       , "  (define (length l)"
       , "    (if (null? l)"
@@ -63,11 +71,9 @@ toplevel = snd . unsafePerformIO $ run defs base
       , "  (define cdddr (comp cdr cddr))"
 
       , "  (define (assoc v l)"
-      , "    (if (null? l)"
-      , "        #f"
-      , "        (if (= v (caar l))"
-      , "            (car (cdar l))"
-      , "            (assoc v (cdr l)))))"
+      , "    (cond ((null? l) #f)"
+      , "          ((= v (caar l)) (cadar l))"
+      , "          (#t (assoc v (cdr l)))))"
 
       , "  (define (map op l)"
       , "    (if (null? l)"
@@ -76,12 +82,11 @@ toplevel = snd . unsafePerformIO $ run defs base
       , "              (map op (cdr l)))))"
 
       , "  (define (filter p l)"
-      , "    (if (null? l)"
-      , "        l"
-      , "        (if (p (car l))"
-      , "            (cons (car l)"
-      , "                  (filter p (cdr l)))"
-      , "            (filter p (cdr l)))))"
+      , "    (cond ((null? l) l)"
+      , "          ((p (car l))"
+      , "           (cons (car l)"
+      , "                 (filter p (cdr l))))"
+      , "          (#t (filter p (cdr l)))))"
 
       , "  (define (fold op acc l)"
       , "    (if (null? l)"

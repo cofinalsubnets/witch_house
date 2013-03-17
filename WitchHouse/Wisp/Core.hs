@@ -37,13 +37,19 @@ f_quasiq = Sform $ \vs f e -> case vs of
       v -> return . return $ v
 
 f_splice :: Sval
-f_splice = Sform $ \vs f env -> run (p_apply p_eval vs f) env
+f_splice = Sform $ \_ _ env -> return (Left "ERROR: Splice outside of quasiquoted expression.", env)
 
 f_lambda :: Sval
 f_lambda = Sform $ \vs f env -> return $
   case vs of (Slist ps):svs -> let ps' = map (\(Ssym s) -> s) ps
                                in (return $ Sfunc ps' svs f, env)
              _ -> (Left "Malformed lambda exp", env)
+
+f_macro :: Sval
+f_macro = Sform $ \vs f env -> return $
+  case vs of (Slist ps):svs -> let ps' = map (\(Ssym s) -> s) ps
+                               in (return $ Smacro ps' svs f, env)
+             _ -> (Left "Malformed macro definition", env)
 
 f_define :: Sval
 f_define = Sform $ \vs f env -> case vs of
@@ -131,27 +137,24 @@ w_apply = Sprim $ \sv f env -> case sv of
 
 -- | Function application.
 p_apply :: Sval -> [Sval] -> Int -> Expr (Either String) Sval
-
-p_apply (Sprim f) vs i = Expr $ f vs i -- primitive fn application - the easy case!
-p_apply (Sform f) vs i = Expr $ f vs i
-
-p_apply (Sfunc ps body fe) vs _ = Expr $ apply posArgs splat vs
+p_apply sv vs i
+  | tc_prim sv || tc_form sv = Expr $ (transform sv) vs i -- primitive fn application - the easy case!
+  | tc_func sv || tc_macro sv = Expr $ apply posArgs splat vs
+  | otherwise = Expr $ return  . (Left $ "Non-applicable value: " ++ show sv,)
   where
-    (posArgs, splat) = break (== ".") ps
+    (posArgs, splat) = break (== ".") (params sv)
     apply pos var sup env
       | (not $ null var) && (not $ length var == 2) =
-          return (Left $ "Bad variadic parameter syntax: " ++ show ps, env)
+          return (Left $ "Bad variadic parameter syntax: " ++ show (params sv), env)
       | length pos > length sup || null var && length pos < length sup =
-          return (Left $ "(apply) Wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos) ++ ": " ++ show (Sfunc ps body fe), env)
+          return (Left $ "(apply) Wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos) ++ ": " ++ show sv, env)
       | otherwise = let posV = pos `zip` vs
                         varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
-                        frame = (M.fromList (varV ++ posV), fe)
+                        frame = (M.fromList (varV ++ posV), frameNo sv)
                         (n,env') = pushFrame frame env
-                    in _eval [Slist ((Ssym "begin"):body)] n env'
+                    in _eval [Slist ((Ssym "begin"):(body sv))] n env'
 
     pushFrame f e = let n = succ . last $ M.keys e in (n, M.insert n f e)
-
-p_apply v _ _ = Expr $ return  . (Left $ "Non-applicable value: " ++ show v,)
 
 
 p_eval :: Sval
@@ -181,12 +184,16 @@ _eval [v] f env
 
     _apply (Slist (o:vs)) = do
       (op, _) <- _eval [o] f env
-      vals <- mapM (\val -> fst `fmap` _eval [val] f env) vs
-
-      case (op,sequence vals) of
-        (Right op',Right vals') -> run (p_apply op' vals' f) env
-        (Left err,_) -> return (Left err,env)
-        (_,Left err) -> return (Left err,env)
+      case op of
+        Left err -> return (Left err, env)
+        Right op' -> if not $ tc_macro op' then do
+                       vals <- mapM (\val -> fst `fmap` _eval [val] f env) vs
+                       case (sequence vals) of
+                         Right vals' -> run (p_apply op' vals' f) env
+                         Left err -> return (Left err, env)
+                     else do (expn, env') <- run (p_apply op' vs f) env
+                             case expn of Left err -> return (Left err, env)
+                                          Right xv -> _eval [xv] f env'
 
     _apply nil@(Slist []) = return (return nil, env)
     _apply _ = error "_eval: _apply: unexpected pattern"
@@ -217,6 +224,7 @@ specialForms = M.fromList $
   , ("set!",   f_set   )
   , ("quasiquote", f_quasiq)
   , ("splice", f_splice)
+  , ("macro", f_macro)
   ]
 
 coreBinds :: M.Map String Sval
@@ -237,6 +245,7 @@ coreBinds = M.fromList $
   , ("list?", check tc_list)
   , ("symbol?", check tc_sym)
   , ("primitive?", check tc_prim)
+  , ("macro?", check tc_macro)
   , ("null?",  p_null  )
   , ("cons", p_cons    )
   , ("error", p_err )
@@ -253,6 +262,8 @@ tc_bool :: Sval -> Bool
 tc_bool s = case s of { Sbool _ -> True; _ -> False }
 tc_func :: Sval -> Bool
 tc_func s = case s of { Sfunc _ _ _ -> True; _ -> False }
+tc_macro :: Sval -> Bool
+tc_macro s = case s of { Smacro _ _ _ -> True; _ -> False }
 tc_world :: Sval -> Bool
 tc_world s = case s of { Sworld _ -> True; _ -> False }
 
