@@ -36,6 +36,7 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
       , ("location", wisp_w_loc)
       , ("find", wisp_find)
       , ("loc-exits", wisp_exits)
+      , ("go-dir", wisp_go)
       ]
 
     defs = runWisp . unlines $
@@ -106,6 +107,13 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
       , "                         \"\n\")"
       , "                   *self*)))"
       , "     (loc-exits (location *self*))))"
+
+      , "  (define (go dir)"
+      , "    (define old-self *self*)"
+      , "    (set! *self* (go-dir dir *self*))"
+      , "    (notify-room \"\" (cat *name* \" goes \" dir \".\") old-self)"
+      , "    (notify-room \"\" (cat *name* \" arrives.\") *self*)"
+      , "    (look))"
 
       , ")"
       ]
@@ -189,6 +197,11 @@ wisp_notify_loc = Sprim $ \vs _ e -> case vs of
 wisp_exits :: Sval
 wisp_exits = Sprim $ \vs _ e -> case vs of
   [Sworld (o,_)] -> return (Right . Slist . map Sstring . M.keys $ exits o, e)
+  l -> return (Left $ "bad arguments: " ++ show l, e)
+
+wisp_go :: Sval
+wisp_go = Sprim $ \vs _ e -> case vs of
+  [Sstring dir, Sworld w] -> return (Sworld `fmap` go dir w, e)
   l -> return (Left $ "bad arguments: " ++ show l, e)
 
 wisp_find :: Sval

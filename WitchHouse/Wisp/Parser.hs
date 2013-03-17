@@ -14,11 +14,18 @@ wisp = optional whitespace *> expr <* optional whitespace
 
     whitespace = many1 $ oneOf " \n\t\r"
 
-    expr = nakedExpr <|> quotedExpr
+    expr = nakedExpr <|> quotedExpr <|> quasiquotedExpr <|> splicedExpr
 
     nakedExpr = sexp <|> atom
+
     quotedExpr = (\v -> Slist [Ssym "quote", v]) `fmap` (quote *> expr)
       where quote = char '\''
+
+    quasiquotedExpr = (\v -> Slist [Ssym "quasiquote", v]) `fmap` (qquote *> expr)
+      where qquote = char '`'
+
+    splicedExpr = (\v -> Slist [Ssym "splice", v]) `fmap` (splice *> expr)
+      where splice = char ','
 
     sexp = fmap Slist $ char '(' *> optional wsOrComment *> expr `sepEndBy` wsOrComment <* char ')'
 

@@ -115,10 +115,11 @@ quit [] (f,c) = case handle f of
 quit _ w = huh w
 
 goes :: Command
-goes [dir] w = case go dir w of
-  Left err -> notify err w
-  Right w' -> do (++" goes "++dir++".") . name . focus >>= notifyExcept $ w
-                 send ["look"] w' >>= ((++" arrives.") . name . focus >>= notifyExcept)
+goes [dir] w = do
+  res <- invoke "go" [Sstring dir] w
+  case res of
+    Left err -> notify err w
+    Right (_,w') -> return w'
 goes _ w = huh w
 
 enters :: Command

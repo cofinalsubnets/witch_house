@@ -18,9 +18,26 @@ import Data.List
 {- PRIMITIVES -}
 
 f_quote :: Sval
-f_quote = Sform $ \vs _ e -> return $
-  case vs of [v] -> (Right v,e)
-             _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+f_quote = Sform $ \vs _ e -> return $ case vs of
+  [v] -> (Right v,e)
+  _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+
+f_quasiq :: Sval
+f_quasiq = Sform $ \vs f e -> case vs of
+  [Slist l] -> do res <- spliceL l f e
+                  return (res,e)
+  [sv] -> return (Right sv, e)
+  _ -> return (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+  where
+    spliceL l f e = do rs <- mapM (splice f e) l
+                       return $ Slist `fmap` sequence rs
+    splice f e sv = case sv of
+      Slist [Ssym "splice", v] -> liftM fst $ run (p_apply p_eval [v] f) e
+      Slist l -> spliceL l f e
+      v -> return . return $ v
+
+f_splice :: Sval
+f_splice = Sform $ \vs f env -> run (p_apply p_eval vs f) env
 
 f_lambda :: Sval
 f_lambda = Sform $ \vs f env -> return $
@@ -57,6 +74,7 @@ f_set = Sform $ \vs f env -> case vs of
   where findBind _ (-1) _ = Nothing
         findBind nm n e = let (bs,n') = e M.! n in if nm `M.member` bs then Just n else findBind nm n' e
 
+
 fold_num :: (Int -> Int -> Int) -> Sval
 fold_num op = Sprim $ \vs _ env -> return . (,env) $ do
   tc_fail (and . map tc_num) vs
@@ -66,7 +84,6 @@ p_err :: Sval
 p_err = Sprim $ \err _ env -> return $ case err of
   [Sstring e] -> (Left ("ERROR: "++e), env)
   _ -> (Left $ "(error) Bad arguments: " ++ show err, env)
-  
 
 p_cat :: Sval
 p_cat = Sprim $ \vs _ e -> return . (,e) $ do
@@ -125,7 +142,7 @@ p_apply (Sfunc ps body fe) vs _ = Expr $ apply posArgs splat vs
       | (not $ null var) && (not $ length var == 2) =
           return (Left $ "Bad variadic parameter syntax: " ++ show ps, env)
       | length pos > length sup || null var && length pos < length sup =
-          return (Left $ "(apply) Wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos), env)
+          return (Left $ "(apply) Wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos) ++ ": " ++ show (Sfunc ps body fe), env)
       | otherwise = let posV = pos `zip` vs
                         varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
                         frame = (M.fromList (varV ++ posV), fe)
@@ -198,6 +215,8 @@ specialForms = M.fromList $
   , ("if",     f_if    )
   , ("lambda", f_lambda)
   , ("set!",   f_set   )
+  , ("quasiquote", f_quasiq)
+  , ("splice", f_splice)
   ]
 
 coreBinds :: M.Map String Sval
