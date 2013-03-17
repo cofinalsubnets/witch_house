@@ -1,6 +1,8 @@
 {-# LANGUAGE GADTs, FlexibleInstances #-}
 module WitchHouse.Types
-( Obj(..)
+( Options(..)
+, Verbosity(..)
+, Obj(..)
 , World
 , WT
 , Scope(..)
@@ -8,12 +10,24 @@ module WitchHouse.Types
 , Expr(..)
 , Env
 , Frame
-)where
+) where
 
 import Data.Unique (Unique)
 import Data.Map (Map)
 import System.IO (Handle)
 import Data.Function (on)
+
+-- command line options
+data Options = Options { portNo       :: Int
+                       , dbPath       :: FilePath
+                       , persistent   :: Bool
+                       , autosave     :: Int
+                       , initialState :: World
+                       , verbosity    :: Verbosity
+                       , logHandle    :: Handle
+                       }
+
+data Verbosity = V0 | V1 | V2 deriving (Show,Eq,Ord)
 
 -- | A thing in the world.
 -- A world is basically a tree of Objs, which we traverse using a zipper.

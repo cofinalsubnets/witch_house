@@ -116,6 +116,7 @@ w_apply = Sprim $ \sv f env -> case sv of
 p_apply :: Sval -> [Sval] -> Int -> Expr (Either String) Sval
 
 p_apply (Sprim f) vs i = Expr $ f vs i -- primitive fn application - the easy case!
+p_apply (Sform f) vs i = Expr $ f vs i
 
 p_apply (Sfunc ps body fe) vs _ = Expr $ apply posArgs splat vs
   where

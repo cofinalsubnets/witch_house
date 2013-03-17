@@ -14,7 +14,7 @@ import System.Timeout
 import WitchHouse.World
 import WitchHouse.Types
 import WitchHouse.Commands
-import WitchHouse.Invocation
+import WitchHouse.Version
 import WitchHouse.Persistence
 
 
@@ -72,7 +72,7 @@ session h tmw = do
 
 
 connectMsg :: String
-connectMsg = "witch_house " ++ (showVersion version)
+connectMsg = "witch_house " ++ version
 
 welcomeMsg :: Obj -> World -> String
 welcomeMsg (Obj {name=n}) _ = "Welcome, " ++ n ++ "."

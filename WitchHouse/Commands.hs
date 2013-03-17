@@ -6,7 +6,7 @@ module WitchHouse.Commands
 
 import WitchHouse.World
 import WitchHouse.Types
-import Data.List (isPrefixOf, intercalate)
+import Data.List (isPrefixOf)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Char
@@ -118,28 +118,19 @@ goes :: Command
 goes [dir] w = case go dir w of
   Left err -> notify err w
   Right w' -> do (++" goes "++dir++".") . name . focus >>= notifyExcept $ w
-                 looks [] w' >>= ((++" arrives.") . name . focus >>= notifyExcept)
+                 send ["look"] w' >>= ((++" arrives.") . name . focus >>= notifyExcept)
 goes _ w = huh w
 
 enters :: Command
 enters [n] w = case enter (matchName n) w of
   Left err -> notify err w
   Right w' -> do (++ " enters "++(name . focus . zUp' $ w')++".") . name . focus >>= notifyExcept $ w
-                 looks [] w' >>= ((++" enters.") . name . focus >>= notifyExcept)
+                 send ["look"] w' >>= ((++" enters.") . name . focus >>= notifyExcept)
 enters _ w = huh w
 
 makes :: Command
 makes [n] = make n >=> notify ("You make "++n++".")
 makes _ = huh
-
-looks :: Command
-looks [] = descLoc >>= notify
-looks _ = huh
-
-descLoc :: World -> String
-descLoc w = let c = focus.zUp' $ w
-                dv = replicate (length . name $ c) '-'
-  in intercalate "\n" $ [name c, dv, description c, dv] ++ map (\o -> name o ++ " is here.") (contents c)
 
 links :: Command
 links [dir,dest] = notifyResult (\w -> zUp w >>= link dir (matchName dest) >>= find (focus w ==) Self) $

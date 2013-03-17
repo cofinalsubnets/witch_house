@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 module WitchHouse.World.Interop
 ( objlevel
 , invoke
@@ -36,14 +35,23 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
       , ("w-dn", wisp_w_dn)
       , ("location", wisp_w_loc)
       , ("find", wisp_find)
+      , ("loc-exits", wisp_exits)
       ]
 
     defs = runWisp . unlines $
       [ "(begin"
 
-      , "  (define (quiet-exit) (set! *self* (w-up *self*)))"
+      , "  (define (quiet-exit)"
+      , "    (set! *self* (w-up *self*)))"
 
-      , "  (define (enter n) (set! *self* (w-dn *self* (if (world? n) (name n) n))))"
+      , "  (define (enter n)"
+      , "    ((lambda (dest)"
+      , "       (notify-room \"\" (cat *name* \" enters \" dest \".\") *self*)"
+      , "       (set! *self* (w-dn *self* dest))"
+      , "       (notify-room \"\" (cat *name* \" enters.\") *self*)"
+      , "       (look))"
+      , "     (if (world? n) (name n) n)))"
+
       , "  (define (join strs j)"
       , "    (fold (lambda (s1 s2) (cat s1 j s2)) (car strs) (cdr strs)))"
 
@@ -54,26 +62,23 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
       , "                   w)))"
       
       , "  (define (drop w)"
-      , "    (quiet-exit)"
+      , "    (exit)"
       , "    (notify-room (cat \"You drop \" *name* \".\")"
       , "                 (cat (name w) \" drops \" *name* \".\")"
       , "                 w))"
 
       , "  (define (exit)"
-      , "    (notify-room \"\""
-      , "                 (cat *name* \" arrives.\")"
-      , "                 (begin"
-      , "                   (set! *self*"
-      , "                         (w-up (notify-room \"\""
-      , "                                            (cat *name* \" exits.\")"
-      , "                                            *self*)))"
-      , "                   (look))))"
+      , "    (notify-room \"\" (cat *name* \" leaves.\") *self*)"
+      , "    (set! *self* (w-up *self*))"
+      , "    (notify-room \"\" (cat *name* \" arrives.\") *self*)"
+      , "    (look))"
 
       , "  (define (look)"
       , "    (notify (join (append (list (name (location *self*))"
       , "                                (desc (location *self*)))"
       , "                          (map (lambda (i) (cat (name i) \" is here.\"))"
-      , "                               (contents (location *self*))))"
+      , "                               (filter (lambda (t) (not (= t *self*)))"
+      , "                                       (contents (location *self*)))))"
       , "                  \"\n\")"
       , "            *self*))"
 
@@ -89,7 +94,19 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
       , "                               (map name i))"
       , "                         \"\n\")"
       , "                   *self*)))"
-      , "     (contents *self*)))" 
+      , "     (contents *self*)))"
+
+      , "  (define (exits)"
+      , "    ((lambda (xs)"
+      , "       (if (null? xs)"
+      , "           (notify \"There are no exits from your current location.\""
+      , "                   *self*)"
+      , "           (notify (join (cons \"The following exits are available: \""
+      , "                               xs)"
+      , "                         \"\n\")"
+      , "                   *self*)))"
+      , "     (loc-exits (location *self*))))"
+
       , ")"
       ]
 
@@ -167,6 +184,11 @@ wisp_notify_loc :: Sval
 wisp_notify_loc = Sprim $ \vs _ e -> case vs of
   [Sstring s, Sstring o, Sworld w] -> do rw <- notify s w >> notifyExcept o w
                                          return (Right . Sworld $ rw ,e)
+  l -> return (Left $ "bad arguments: " ++ show l, e)
+
+wisp_exits :: Sval
+wisp_exits = Sprim $ \vs _ e -> case vs of
+  [Sworld (o,_)] -> return (Right . Slist . map Sstring . M.keys $ exits o, e)
   l -> return (Left $ "bad arguments: " ++ show l, e)
 
 wisp_find :: Sval

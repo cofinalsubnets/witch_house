@@ -2,8 +2,6 @@ module WitchHouse.Invocation
 ( Options(..)
 , Verbosity(..)
 , handleArgs
-, version
-, showVersion
 ) where
 
 import System.Console.GetOpt
@@ -12,28 +10,18 @@ import Control.Concurrent (setNumCapabilities)
 import Control.Exception (SomeException, evaluate, catch)
 import System.Posix.User
 import System.Directory
-import Data.Version
 import System.IO
 
 import WitchHouse.Types
 import WitchHouse.World
 import WitchHouse.Persistence (connect, disconnect, loadWorld)
 import WitchHouse.Wisp (repl)
-
-data Options = Options { portNo       :: Int
-                       , dbPath       :: FilePath
-                       , persistent   :: Bool
-                       , autosave     :: Int
-                       , initialState :: World
-                       , verbosity    :: Verbosity
-                       , logHandle    :: Handle
-                       }
-
-data Verbosity = V0 | V1 | V2 deriving (Show,Eq,Ord)
+import WitchHouse.Version
 
 handleArgs :: [String] -> IO Options
-handleArgs args = case getOpt Permute options args of (o,[],[]) -> foldl (>>=) defaults o
-                                                      _         -> displayUsage >> exitFailure
+handleArgs args = case getOpt Permute options args of
+  (o,[],[]) -> foldl (>>=) defaults o
+  _         -> displayUsage >> exitFailure
 
 options :: [OptDescr (Options -> IO Options)]
 options = [ Option "" ["cores"]
@@ -58,7 +46,7 @@ options = [ Option "" ["cores"]
             (ReqArg loadDB "FILE")
               "load initial state from file"
           , Option "" ["version"]
-            (NoArg (\_ -> vn >> exitSuccess))
+            (NoArg (\_ -> putStrLn ("witch_house " ++ version) >> exitSuccess))
               "print version and exit"
           , Option "" ["log-file"]
             (ReqArg logTo "FILE")
@@ -73,9 +61,6 @@ options = [ Option "" ["cores"]
             (NoArg (\_ -> repl >> exitSuccess))
               "wisp REPL"
           ]
-
-vn :: IO ()
-vn = putStrLn $ "witch_house " ++ showVersion version
 
 loadDB :: FilePath -> Options -> IO Options
 loadDB f opts = do
@@ -130,9 +115,6 @@ readArg s = evaluate (read s) `catch` readFail
                         hPutStrLn stderr $ "Unable to parse argument: " ++ s
                         displayUsage
                         exitFailure
-
-version :: Version
-version = Version [0,0,0] ["pre-pre-alpha"]
 
 configDir :: IO FilePath
 configDir = do

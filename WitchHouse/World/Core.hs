@@ -4,13 +4,10 @@ module WitchHouse.World.Core
 , drop
 , enter
 , exit
-, move
 , find -- probably shouldn't export this
 , find'
-, remove
 , link
 , unlink
-, object -- this is redundant
 , matchName
 , zDn -- stop exporting these!
 , zUp
@@ -18,13 +15,11 @@ module WitchHouse.World.Core
 , zIns
 , focus
 , context
-, run
 ) where
 
 import Data.List hiding (find, take, drop)
 import qualified Data.List as List (find)
 import Prelude hiding (take, drop)
-import Data.Unique
 import Control.Monad (liftM)
 import qualified Data.Map as M
 
@@ -42,9 +37,6 @@ take p w = find p Location w >>= enter (==focus w)
 drop :: (Obj -> Bool) -> WT
 drop p w = find p Self w >>= exit
 
-remove :: World -> World
-remove = zDel
-
 enter :: (Obj -> Bool) -> WT
 enter p w = move p Self w -- it's counterintuitive that the scope here should be `Self'
 
@@ -53,7 +45,7 @@ go dir w = do
   w' <- zUp w
   case M.lookup dir (exits . focus $ w') of
     Nothing -> Left "You can't go that way."
-    Just u  -> move (object u) Global w
+    Just u  -> move ((== u) . objId) Global w
 
 exit :: WT
 exit (_,[]) = Left "You can't exit this location."
@@ -125,7 +117,7 @@ steps n w = step n (Just w, zDn w)
 -- current focus (Location); all nodes within some distance of the current
 -- focus (Distance n); or all nodes, everywhere (Global).
 find :: (Obj -> Bool) -> Scope -> WT
-find p s w = case List.find (p.focus) $ ops of Nothing -> Left "I don't know of anything like that."
+find p s w = case List.find (p.focus) $ ops of Nothing -> Left "I don't know what you're talking about."
                                                Just w' -> Right w'
   where ops = case s of Self -> zDn w
                         Location -> case zUp w of Left _ -> []
@@ -141,11 +133,6 @@ find' p s w = case find p s w of Right w' -> w'
 
 
 {- OBJECT PREDICATES -}
-
--- | An entirely redundant predicate, since equality on objs is defined
--- in terms of their id.
-object :: Unique -> Obj -> Bool
-object u = (u==) . objId
 
 matchName :: String -> Obj -> Bool
 matchName n = isPrefixOf n . name

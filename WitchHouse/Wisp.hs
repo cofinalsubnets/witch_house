@@ -11,7 +11,7 @@ import WitchHouse.Wisp.Parser
 import Data.Map (fromList)
 
 import System.IO -- for the repl
-import System.IO.Unsafe -- for toplevel defs
+import System.IO.Unsafe (unsafePerformIO) -- for toplevel defs
 
 toplevel :: Env
 toplevel = snd . unsafePerformIO $ run defs base
