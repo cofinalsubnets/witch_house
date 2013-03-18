@@ -133,7 +133,7 @@ p_arity = Sprim $ \sv _ env -> case sv of
 w_apply :: Sval
 w_apply = Sprim $ \sv f env -> case sv of
   [a,Slist l] -> run (p_apply a l f) env
-  _ -> return (Left $ "Bad arguments: " ++ show sv, env)
+  _ -> return (Left $ "(apply) Bad arguments: " ++ show sv, env)
 
 -- | Function application.
 p_apply :: Sval -> [Sval] -> Int -> Expr (Either String) Sval
@@ -166,7 +166,7 @@ _eval [v] f env
   | spec v    = _apply_spec v
   | tc_sym v  = _eval_var v
   | tc_list v = _apply v
-  | otherwise = return (Left $ "Bad argument type: " ++ show v, env)
+  | otherwise = return (Left $ "(eval) Bad argument type: " ++ show v, env)
 
   where
 
@@ -183,17 +183,18 @@ _eval [v] f env
     _eval_var _ = error "_eval: _eval_var: unexpected pattern"
 
     _apply (Slist (o:vs)) = do
-      (op, _) <- _eval [o] f env
+--      putStrLn $ show (Slist (o:vs))
+      (op, env') <- _eval [o] f env
       case op of
         Left err -> return (Left err, env)
         Right op' -> if not $ tc_macro op' then do
-                       vals <- mapM (\val -> fst `fmap` _eval [val] f env) vs
-                       case (sequence vals) of
-                         Right vals' -> run (p_apply op' vals' f) env
+                       (vals,env'') <- evalList vs f env'
+                       case sequence vals of
+                         Right vals' -> run (p_apply op' vals' f) env''
                          Left err -> return (Left err, env)
-                     else do (expn, env') <- run (p_apply op' vs f) env
+                     else do (expn, env'') <- run (p_apply op' vs f) env'
                              case expn of Left err -> return (Left err, env)
-                                          Right xv -> _eval [xv] f env'
+                                          Right xv -> _eval [xv] f env''
 
     _apply nil@(Slist []) = return (return nil, env)
     _apply _ = error "_eval: _apply: unexpected pattern"
@@ -281,13 +282,15 @@ tc_form s = case s of { Sform _ -> True; _ -> False }
 tc_fail :: Show a => (a -> Bool) -> a -> Either String ()
 tc_fail p v = if p v then return () else Left $ "Bad type: " ++ show v
 
+evalList :: [Sval] -> Int -> Env -> IO ([Either String Sval], Env)
+evalList vs f e = do (rs,final) <- foldM acc ([],e) $ map (\o -> p_apply p_eval [o] f) vs
+                     return (reverse rs, final)
+  where acc (l,s) m = run m s >>= \(r,s') -> return (r:l,s')
+
 check :: (Sval -> Bool) -> Sval
 check p = Sprim $ \vs f e -> do
-  vs' <- do
-    let acc (l,s) m = run m s >>= \(r,s') -> return (r:l,s')
-    (vs',_) <- foldM acc ([],e) $ map (\o -> p_apply p_eval [o] f) vs
-    return . sequence $ reverse vs'
-  case vs' of 
+  (vs',_) <- evalList vs f e
+  case sequence vs' of 
     Right vs'' -> return (return . Sbool $ all p vs'', e)
     Left err -> return (Left err,e)
 

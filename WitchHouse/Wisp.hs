@@ -31,6 +31,12 @@ toplevel = snd . unsafePerformIO $ run defs base
       , "            '(error \"cond: fell through\")"
       , "            (reverse (cons case cases)))))"
 
+      , "  (define let"
+      , "    (macro (binds . body)"
+      , "      `(apply ,(cons 'lambda"
+      , "                     (cons (map car binds)"
+      , "                           body))"
+      , "              ',(map (comp eval cadr) binds))))"
 
       , "  (define (member e lst)"
       , "    (cond ((null? lst) #f)"
@@ -41,6 +47,7 @@ toplevel = snd . unsafePerformIO $ run defs base
       , "    (if (null? l)"
       , "        0"
       , "        (+ 1 (length (cdr l)))))"
+
       , "  (define (comp f g)"
       , "    (lambda (n) (f (g n))))"
 
