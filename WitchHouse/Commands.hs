@@ -38,6 +38,7 @@ rootMap = M.fromList $
   , ("help", help)
   , ("@eval", oEval)
   , ("@env", env)
+  , ("@reset", reset)
   ]
 
 {- NOTIFICATION HELPERS -}
@@ -132,6 +133,10 @@ enters _ w = huh w
 makes :: Command
 makes [n] = make n >=> notify ("You make "++n++".")
 makes _ = huh
+
+reset :: Command
+reset [] (o,cs) = return (o{bindings = objlevel}, cs) >>= notify "Bindings reset."
+reset _ w = huh w
 
 links :: Command
 links [dir,dest] = notifyResult (\w -> zUp w >>= link dir (matchName dest) >>= find (focus w ==) Self) $

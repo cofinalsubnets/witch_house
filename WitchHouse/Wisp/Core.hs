@@ -86,6 +86,12 @@ fold_num op = Sprim $ \vs _ env -> return . (,env) $ do
   tc_fail (and . map tc_num) vs
   return . Snum . foldl1 op $ map (\(Snum n) -> n) vs
 
+p_div :: Sval
+p_div = Sprim $ \vs _ env -> return . (,env) $ do
+  tc_fail (and . map tc_num) vs
+  if any (==Snum 0) (tail vs) then Left "ERROR: divide by zero"
+  else return . Snum . foldl1 quot $ map (\(Snum n) -> n) vs
+
 p_err :: Sval
 p_err = Sprim $ \err _ env -> return $ case err of
   [Sstring e] -> (Left ("ERROR: "++e), env)
@@ -232,7 +238,7 @@ coreBinds = M.fromList $
   [ ("+",      fold_num (+) )
   , ("-",      fold_num (-) )
   , ("*",      fold_num (*) )
-  , ("/",      fold_num quot)
+  , ("/",      p_div)
   , ("=",      p_eq    )
   , ("eval",   p_eval  )
   , ("cat",    p_cat   )

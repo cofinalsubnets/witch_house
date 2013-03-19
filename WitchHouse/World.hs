@@ -8,6 +8,7 @@ module WitchHouse.World
 , evalWisp
 , notify
 , notifyExcept
+, objlevel
 ) where
 
 import WitchHouse.Types
