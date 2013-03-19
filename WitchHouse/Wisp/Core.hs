@@ -183,7 +183,6 @@ _eval [v] f env
     _eval_var _ = error "_eval: _eval_var: unexpected pattern"
 
     _apply (Slist (o:vs)) = do
---      putStrLn $ show (Slist (o:vs))
       (op, env') <- _eval [o] f env
       case op of
         Left err -> return (Left err, env)

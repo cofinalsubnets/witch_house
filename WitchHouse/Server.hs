@@ -61,9 +61,15 @@ session h tmw = do
       when stop exitSuccess
       c <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
       w <- liftM (find' (n==) Global) (atomically $ takeTMVar tmw) -- TODO: better error handling here
-      res <- try $ handleCommand c w :: IO (Either SomeException World)
-      atomically . putTMVar tmw $ case res of Left _   -> w
-                                              Right w' -> w'
+      res <- timeout 1000000 . try $ handleCommand c w :: IO (Maybe (Either SomeException World))
+      case res of
+        Nothing -> do
+          hPutStrLn h "Operation failed due to timeout."
+          atomically $ putTMVar tmw w
+        Just (Left x) -> do
+          hPutStrLn h $ "An error occurred: " ++ show x
+          atomically $ putTMVar tmw w
+        Just (Right w') -> atomically $ putTMVar tmw w'
 
   where
     handleCommand c = case c of Nothing -> parseCommand rootMap "quit"
