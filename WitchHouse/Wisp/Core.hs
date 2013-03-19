@@ -13,6 +13,8 @@ import Control.Monad
 
 import qualified Data.Map as M
 import Data.List
+import Data.ByteString.Char8 (pack)
+import Data.ByteString (ByteString)
 
 
 {- PRIMITIVES -}
@@ -32,7 +34,8 @@ f_quasiq = Sform $ \vs f e -> case vs of
     spliceL l f e = do rs <- mapM (splice f e) l
                        return $ Slist `fmap` sequence rs
     splice f e sv = case sv of
-      Slist [Ssym "splice", v] -> liftM fst $ run (p_apply p_eval [v] f) e
+      Slist l@[s, v] -> if s == sym_splice then liftM fst $ run (p_apply p_eval [v] f) e
+                        else spliceL l f e
       Slist l -> spliceL l f e
       v -> return . return $ v
 
@@ -61,7 +64,7 @@ f_define = Sform $ \vs f env -> case vs of
                      env'' = M.insert f (frame',p) env'
                  in return (Right v, env'')
       Left e -> return (Left e, env)
-  (Slist (h:ss)):xps -> run (p_apply f_define [h, Slist ([Ssym "lambda", Slist ss] ++ xps)] f) env
+  (Slist (h:ss)):xps -> run (p_apply f_define [h, Slist ([sym_lambda, Slist ss] ++ xps)] f) env
   _ -> return (Left "Bad definition syntax", env)
 
 
@@ -71,7 +74,7 @@ f_set = Sform $ \vs f env -> case vs of
     (xv,env') <- run (p_apply p_eval [xp] f) env
     return $ case xv of
       Right v -> case findBind s f env' of
-                   Nothing -> (Left $ "Unable to resolve symbol: " ++ s, env)
+                   Nothing -> (Left $ "Unable to resolve symbol: " ++ show s, env)
                    Just n -> let (fr,n') = env M.! n
                              in (Right v, M.insert n (M.insert s v fr, n') env')
       Left e -> (Left e, env)
@@ -125,14 +128,14 @@ f_if = Sform $ \vs f env -> case vs of
     case v of Left err -> return (Left err, env)
               Right v' -> case v' of (Sbool False) -> run (p_apply p_eval [n] f) env
                                      _             -> run (p_apply p_eval [y] f) env
-  _ -> return (Left $ "if: bad conditional syntax: " ++ show (Slist $ (Ssym "if"):vs), env)
+  _ -> return (Left $ "if: bad conditional syntax: " ++ show (Slist $ sym_if:vs), env)
 
 f_begin :: Sval
 f_begin = Sform $ \sv f -> run $ foldl1 (>>) $ map (\o -> p_apply p_eval [o] f) sv
 
 p_arity :: Sval
 p_arity = Sprim $ \sv _ env -> case sv of
-  [Sfunc as _ _] -> return (Right . Snum . length $ takeWhile (\s -> s /= ".") as, env)
+  [Sfunc as _ _] -> return (Right . Snum . length $ let splat = pack "." in takeWhile (\s -> s /= splat) as, env)
   [s] -> return (Left $ "Bad type: " ++ show s, env)
   as -> return (Left $ "Wrong number of arguments: " ++ show (length as) ++ " for 1", env)
 
@@ -148,7 +151,7 @@ p_apply sv vs i
   | tc_func sv || tc_macro sv = Expr $ apply posArgs splat vs
   | otherwise = Expr $ return  . (Left $ "Non-applicable value: " ++ show sv,)
   where
-    (posArgs, splat) = break (== ".") (params sv)
+    (posArgs, splat) = break (== pack ".") (params sv)
     apply pos var sup env
       | (not $ null var) && (not $ length var == 2) =
           return (Left $ "Bad variadic parameter syntax: " ++ show (params sv), env)
@@ -158,7 +161,7 @@ p_apply sv vs i
                         varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
                         frame = (M.fromList (varV ++ posV), frameNo sv)
                         (n,env') = pushFrame frame env
-                    in _eval [Slist ((Ssym "begin"):(body sv))] n env'
+                    in _eval [Slist ((sym_begin):(body sv))] n env'
 
     pushFrame f e = let n = succ . last $ M.keys e in (n, M.insert n f e)
 
@@ -185,7 +188,7 @@ _eval [v] f env
 
     _eval_var (Ssym sv) = return $ case envLookup sv f env of
                             Just val -> (return val, env)
-                            Nothing -> (Left $ "Unable to resolve symbol: " ++ sv, env)
+                            Nothing -> (Left $ "Unable to resolve symbol: " ++ show sv, env)
     _eval_var _ = error "_eval: _eval_var: unexpected pattern"
 
     _apply (Slist (o:vs)) = do
@@ -207,7 +210,7 @@ _eval [v] f env
 _eval a _ e = return (Left $ "eval: wrong number of arguments: " ++ show (length a) ++ " for 1", e)
 
 
-envLookup :: String -> Int -> Env -> Maybe Sval
+envLookup :: ByteString -> Int -> Env -> Maybe Sval
 envLookup _ (-1) _ = Nothing 
 envLookup s f env = let (binds,nxt) = env M.! f in
   case M.lookup s binds of Nothing -> envLookup s nxt env
@@ -220,42 +223,42 @@ gc env = foldl (flip M.delete) env (M.keys env \\ nub ks)
         func sv = case sv of { Sfunc _ _ _ -> True; _ -> False }
         frame sv = case sv of { Sfunc _ _ n -> n; _ -> error $ "gc: bad Sval type: " ++ show sv }
 
-specialForms :: M.Map String Sval
+specialForms :: M.Map ByteString Sval
 specialForms = M.fromList $
-  [ ("define", f_define)
-  , ("begin",  f_begin )
-  , ("quote",  f_quote )
-  , ("if",     f_if    )
-  , ("lambda", f_lambda)
-  , ("set!",   f_set   )
-  , ("quasiquote", f_quasiq)
-  , ("splice", f_splice)
-  , ("macro", f_macro)
+  [ (pack "define", f_define)
+  , (pack "begin",  f_begin )
+  , (pack "quote",  f_quote )
+  , (pack "if",     f_if    )
+  , (pack "lambda", f_lambda)
+  , (pack "set!",   f_set   )
+  , (pack "quasiquote", f_quasiq)
+  , (pack "splice", f_splice)
+  , (pack "macro", f_macro)
   ]
 
-coreBinds :: M.Map String Sval
+coreBinds :: M.Map ByteString Sval
 coreBinds = M.fromList $
-  [ ("+",      fold_num (+) )
-  , ("-",      fold_num (-) )
-  , ("*",      fold_num (*) )
-  , ("/",      p_div)
-  , ("=",      p_eq    )
-  , ("eval",   p_eval  )
-  , ("cat",    p_cat   )
-  , ("apply",  w_apply )
-  , ("bool?", check tc_bool)
-  , ("string?", check tc_str)
-  , ("number?", check tc_num)
-  , ("world?", check tc_world)
-  , ("func?", check tc_func)
-  , ("list?", check tc_list)
-  , ("symbol?", check tc_sym)
-  , ("primitive?", check tc_prim)
-  , ("macro?", check tc_macro)
-  , ("null?",  p_null  )
-  , ("cons", p_cons    )
-  , ("error", p_err )
-  , ("arity", p_arity)
+  [ (pack "+",      fold_num (+) )
+  , (pack "-",      fold_num (-) )
+  , (pack "*",      fold_num (*) )
+  , (pack "/",      p_div)
+  , (pack "=",      p_eq    )
+  , (pack "eval",   p_eval  )
+  , (pack "cat",    p_cat   )
+  , (pack "apply",  w_apply )
+  , (pack "bool?", check tc_bool)
+  , (pack "string?", check tc_str)
+  , (pack "number?", check tc_num)
+  , (pack "world?", check tc_world)
+  , (pack "func?", check tc_func)
+  , (pack "list?", check tc_list)
+  , (pack "symbol?", check tc_sym)
+  , (pack "primitive?", check tc_prim)
+  , (pack "macro?", check tc_macro)
+  , (pack "null?",  p_null  )
+  , (pack "cons", p_cons    )
+  , (pack "error", p_err )
+  , (pack "arity", p_arity)
   ]
 
 {- type predicates -}
@@ -298,4 +301,14 @@ check p = Sprim $ \vs f e -> do
   case sequence vs' of 
     Right vs'' -> return (return . Sbool $ all p vs'', e)
     Left err -> return (Left err,e)
+
+{- symbol literals -}
+sym_if :: Sval
+sym_if = Ssym $ pack "if"
+sym_begin :: Sval
+sym_begin = Ssym $ pack "begin"
+sym_lambda :: Sval
+sym_lambda = Ssym $ pack "lambda"
+sym_splice :: Sval
+sym_splice = Ssym $ pack "splice"
 

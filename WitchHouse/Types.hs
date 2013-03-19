@@ -16,6 +16,8 @@ import Data.Unique (Unique)
 import Data.Map (Map)
 import System.IO (Handle)
 import Data.Function (on)
+import Data.ByteString (ByteString)
+import Data.ByteString.Char8 (unpack)
 
 -- command line options
 data Options = Options { portNo       :: Int
@@ -58,7 +60,7 @@ data Scope = Self
 
 -- TYPES FOR WISP
 
-type Frame = (Map String Sval, Int)
+type Frame = (Map ByteString Sval, Int)
 type Env = Map Int Frame
 
 data Expr m a = Monad m => Expr { run :: Env -> IO (m a, Env) }
@@ -67,11 +69,11 @@ type Htrans = [Sval] -> Int -> Env -> IO (Either String Sval, Env)
 -- type for wisp values
 data Sval = Snum    Int
           | Sstring String
-          | Ssym    String
+          | Ssym    ByteString
           | Slist   [Sval]
           | Sbool   Bool
-          | Sfunc   { params :: [String], body :: [Sval], frameNo :: Int }
-          | Smacro  { params :: [String], body :: [Sval], frameNo :: Int }
+          | Sfunc   { params :: [ByteString], body :: [Sval], frameNo :: Int }
+          | Smacro  { params :: [ByteString], body :: [Sval], frameNo :: Int }
           | Sform   { transform :: Htrans }
           | Sprim   { transform :: Htrans }
           | Sworld  World
@@ -80,7 +82,7 @@ instance Show Sval where
   show (Snum n)    = show n
   show (Sstring s) = show s
   show (Sbool b)   = if b then "#t" else "#f"
-  show (Ssym s)    = s
+  show (Ssym s)    = unpack s
   show (Slist l)   = "(" ++ (unwords . map show $ l) ++ ")"
   show (Sfunc as b f) = concat ["(lambda ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
   show (Smacro as b f) = concat ["(macro ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]

@@ -4,6 +4,7 @@ module WitchHouse.Wisp.Parser (parseWisp) where
 import WitchHouse.Types
 import Text.ParserCombinators.Parsec
 import Control.Applicative hiding ((<|>), many, optional)
+import Data.ByteString.Char8 (pack)
 
 parseWisp :: String -> Either ParseError Sval
 parseWisp = parse wisp ""
@@ -18,13 +19,13 @@ wisp = optional whitespace *> expr <* optional whitespace
 
     nakedExpr = sexp <|> atom
 
-    quotedExpr = (\v -> Slist [Ssym "quote", v]) `fmap` (quote *> expr)
+    quotedExpr = (\v -> Slist [Ssym $ pack "quote", v]) `fmap` (quote *> expr)
       where quote = char '\''
 
-    quasiquotedExpr = (\v -> Slist [Ssym "quasiquote", v]) `fmap` (qquote *> expr)
+    quasiquotedExpr = (\v -> Slist [Ssym $ pack "quasiquote", v]) `fmap` (qquote *> expr)
       where qquote = char '`'
 
-    splicedExpr = (\v -> Slist [Ssym "splice", v]) `fmap` (splice *> expr)
+    splicedExpr = (\v -> Slist [Ssym $ pack "splice", v]) `fmap` (splice *> expr)
       where splice = char ','
 
     sexp = fmap Slist $ char '(' *> optional wsOrComment *> expr `sepEndBy` wsOrComment <* char ')'
@@ -40,7 +41,7 @@ wisp = optional whitespace *> expr <* optional whitespace
     str = Sstring `fmap` (char '"' *> many stringContents <* char '"')
       where stringContents = try (string "\\\"" >> return '"') <|> noneOf "\""
 
-    symbol = Ssym `fmap` ((:) <$> symC <*> many (digit <|> symC))
+    symbol = (Ssym . pack) `fmap` ((:) <$> symC <*> many (digit <|> symC))
       where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:")
 
     number = (Snum . read) `fmap` (try neg <|> pos)

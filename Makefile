@@ -1,5 +1,5 @@
 BINNAME := witch_house
-GHCFLAGS := -O2 -threaded -Wall -Werror -fno-warn-unused-do-bind
+GHCFLAGS := -O2 -threaded -Wall -Werror -fno-warn-unused-do-bind # -prof -fprof-auto -rtsopts
 
 build:
 	ghc --make Main.hs -o ${BINNAME} ${GHCFLAGS}
@@ -9,6 +9,7 @@ install: witch_house
 
 clean:
 	find . -regex ".*\.\(o\|\hi\)" -delete
+	rm -f "witch_house.prof"
 
 .PHONY: build install clean
 

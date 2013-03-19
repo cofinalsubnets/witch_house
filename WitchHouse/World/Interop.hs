@@ -18,6 +18,9 @@ import qualified Data.Map as M
 import System.IO (hPutStrLn, hFlush)
 import System.IO.Unsafe (unsafePerformIO)
 
+import Data.ByteString.Char8 (pack)
+import Data.ByteString (ByteString)
+
 -- wisp is in IO but this is actually pure when run against
 -- the default toplevel.
 objlevel :: Env
@@ -26,17 +29,17 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
     tl = fst $ toplevel M.! 0
     toplevel' = M.insert 0 (objBindings `M.union` tl, -1) toplevel
     objBindings = M.fromList $
-      [ ("notify", wisp_notify)
-      , ("notify-room", wisp_notify_loc)
-      , ("contents", wisp_w_contents)
-      , ("name", wisp_w_name)
-      , ("desc", wisp_w_desc)
-      , ("w-up", wisp_w_up)
-      , ("w-dn", wisp_w_dn)
-      , ("location", wisp_w_loc)
-      , ("find", wisp_find)
-      , ("loc-exits", wisp_exits)
-      , ("go-dir", wisp_go)
+      [ (pack "notify", wisp_notify)
+      , (pack "notify-room", wisp_notify_loc)
+      , (pack "contents", wisp_w_contents)
+      , (pack "name", wisp_w_name)
+      , (pack "desc", wisp_w_desc)
+      , (pack "w-up", wisp_w_up)
+      , (pack "w-dn", wisp_w_dn)
+      , (pack "location", wisp_w_loc)
+      , (pack "find", wisp_find)
+      , (pack "loc-exits", wisp_exits)
+      , (pack "go-dir", wisp_go)
       ]
 
     defs = runWisp . unlines $
@@ -121,7 +124,7 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
 
 invoke :: String -> [Sval] -> World -> IO (Either String (Sval,World))
 invoke f sv w = let (o,cs) = bindAttrs w
-  in case envLookup f 0 (bindings o) of
+  in case envLookup (pack f) 0 (bindings o) of
        Nothing -> return . Left $ "Unable to resolve symbol: " ++ f
        Just fn -> do
          res <- run (p_apply fn sv 0) (bindings o)
@@ -137,9 +140,9 @@ evalWisp s w = let (o,cs) = bindAttrs w in do
     (Left err, _) -> Left err
 
 bindAttrs :: World -> World
-bindAttrs (o,cs) = let bs = M.fromList [ ("*name*", Sstring $ name o)
-                                       , ("*desc*", Sstring $ description o)
-                                       , ("*self*", Sworld (o,cs))
+bindAttrs (o,cs) = let bs = M.fromList [ (sym_name, Sstring $ name o)
+                                       , (sym_desc, Sstring $ description o)
+                                       , (sym_self, Sworld (o,cs))
                                        ]
                        (tl,_) = bindings o M.! 0
   in (o{bindings = M.insert 0 ((bs `M.union` tl),-1) (bindings o)},cs)
@@ -147,9 +150,16 @@ bindAttrs (o,cs) = let bs = M.fromList [ ("*name*", Sstring $ name o)
 applyAttrs :: Env -> World -> World
 applyAttrs b w = apName . apDesc $ apWrld
   where (tl,_) = b M.! 0
-        apWrld = case M.lookup "*self*" tl of { Just (Sworld (f,cs)) -> (f{bindings = b},cs) ; _ -> w }
-        apName w'@(f,cs) = case M.lookup "*name*" tl of { Just (Sstring n) -> (f{name = n},cs); _ -> w' }
-        apDesc w'@(f,cs) = case M.lookup "*desc*" tl of { Just (Sstring d) -> (f{description = d},cs); _ -> w' }
+        apWrld = case M.lookup sym_self tl of { Just (Sworld (f,cs)) -> (f{bindings = b},cs) ; _ -> w }
+        apName w'@(f,cs) = case M.lookup sym_name tl of { Just (Sstring n) -> (f{name = n},cs); _ -> w' }
+        apDesc w'@(f,cs) = case M.lookup sym_desc tl of { Just (Sstring d) -> (f{description = d},cs); _ -> w' }
+
+sym_self :: ByteString
+sym_self = pack "*self*"
+sym_desc :: ByteString
+sym_desc = pack "*desc*"
+sym_name :: ByteString
+sym_name = pack "*name*"
 
 
 wisp_w_up :: Sval
@@ -207,7 +217,7 @@ wisp_go = Sprim $ \vs _ e -> case vs of
 wisp_find :: Sval
 wisp_find = Sprim $ \vs f e -> 
   let tl = fst $ e M.! 0
-      self = M.lookup "*self*" tl
+      self = M.lookup sym_self tl
   in case self of
     Just (Sworld w) -> case vs of
       [Sstring s] -> return (Sworld `fmap` find (matchName s) Global w, e)

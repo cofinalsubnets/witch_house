@@ -1,5 +1,6 @@
 *.hi
 *.o
 *.db
+*.prof
 witch_house
 

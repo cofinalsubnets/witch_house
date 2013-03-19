@@ -12,6 +12,10 @@ import Data.Map (fromList)
 
 import System.IO -- for the repl
 import System.IO.Unsafe (unsafePerformIO) -- for toplevel defs
+import System.IO.Error
+
+import Control.Exception
+
 
 toplevel :: Env
 toplevel = snd . unsafePerformIO $ run defs base
@@ -138,7 +142,7 @@ toplevel = snd . unsafePerformIO $ run defs base
       ]
 
 repl :: IO ()
-repl = loop toplevel
+repl = loop toplevel `catch` eof
   where loop bs = do putStr "\n> "
                      hFlush stdout
                      l <- getLine
@@ -150,6 +154,7 @@ repl = loop toplevel
                                case res of
                                  (Left err, bs') -> putStr err >> loop bs'
                                  (Right v, bs') -> putStr (show v) >> loop bs'
+        eof x = if isEOFError x then putStrLn "" else ioError x
 
 runWisp :: String -> Expr (Either String) Sval
 runWisp s = Expr $ \e -> case parseWisp s of
