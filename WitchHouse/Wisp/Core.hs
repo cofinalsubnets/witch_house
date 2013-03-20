@@ -107,9 +107,8 @@ p_cat = Sprim $ \vs _ e -> return . (,e) $ do
 
 p_null :: Sval
 p_null = Sprim $ \vs _ e -> return $ case vs of
-  [Slist []] -> (return $ Sbool True, e)
-  [Slist _] -> (return $ Sbool False, e)
-  [v] -> (Left $ "Bad argument type: " ++ show v, e)
+  [Slist l] -> (return . Sbool $ null l, e)
+  [v] -> (Left $ "Bad type (expected list): " ++ show v, e)
   _ -> (len_fail 1 vs, e)
 
 p_cons :: Sval
@@ -136,10 +135,10 @@ p_sym = Sprim $ \vs _ e -> return $ case vs of
 f_if :: Sval
 f_if = Sform $ \vs f env -> case vs of
   [cond, y, n] -> do
-    (v,_) <- run (p_apply p_eval [cond] f) env
+    (v,env') <- run (p_apply p_eval [cond] f) env
     case v of Left err -> return (Left err, env)
-              Right v' -> case v' of (Sbool False) -> run (p_apply p_eval [n] f) env
-                                     _             -> run (p_apply p_eval [y] f) env
+              Right v' -> case v' of (Sbool False) -> run (p_apply p_eval [n] f) env'
+                                     _             -> run (p_apply p_eval [y] f) env'
   _ -> return (Left $ "if: bad conditional syntax: " ++ show (Slist $ sym_if:vs), env)
 
 f_begin :: Sval
@@ -183,17 +182,14 @@ p_eval = Sprim _eval
 
 _eval :: [Sval] -> Int -> Env -> IO (Either String Sval, Env)
 _eval [v] f env
-  | prim v    = return (return v, env)
-  | spec v    = _apply_spec v
-  | tc_sym v  = _eval_var v
+  | tc_sym  v = _eval_var v
+  | special v = _apply_spec v
   | tc_list v = _apply v
-  | otherwise = return (Left $ "(eval) Bad argument type: " ++ show v, env)
+  | otherwise = return (return v, env)
 
   where
-
-    prim sv = or $ map ($sv) [tc_str, tc_bool, tc_num, tc_func, tc_prim, tc_world, tc_form]
-    spec (Slist (Ssym s:_)) = s `M.member` specialForms
-    spec _ = False
+    special (Slist (Ssym s:_)) = s `M.member` specialForms
+    special _ = False
 
     _apply_spec (Slist ((Ssym s):t)) = let Sform form = specialForms M.! s in form t f env
     _apply_spec _ = error "_eval: _apply_spec: unexpected pattern"
@@ -201,6 +197,7 @@ _eval [v] f env
     _eval_var (Ssym sv) = return (envLookup sv f env, env)
     _eval_var _ = error "_eval: _eval_var: unexpected pattern"
 
+    _apply (Slist []) = return (return (Slist []), env)
     _apply (Slist (o:vs)) = do
       (op, env') <- _eval [o] f env
       case op of
@@ -214,7 +211,6 @@ _eval [v] f env
                              case expn of Left err -> return (Left err, env)
                                           Right xv -> _eval [xv] f env''
 
-    _apply nil@(Slist []) = return (return nil, env)
     _apply _ = error "_eval: _apply: unexpected pattern"
 
 _eval a _ e = return (len_fail 1 a, e)
