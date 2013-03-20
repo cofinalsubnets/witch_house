@@ -22,14 +22,14 @@ import Data.ByteString (ByteString)
 f_quote :: Sval
 f_quote = Sform $ \vs _ e -> return $ case vs of
   [v] -> (Right v,e)
-  _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+  _ -> (len_fail 1 vs, e)
 
 f_quasiq :: Sval
 f_quasiq = Sform $ \vs f e -> case vs of
   [Slist l] -> do res <- spliceL l f e
                   return (res,e)
   [sv] -> return (Right sv, e)
-  _ -> return (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+  _ -> return (len_fail 1 vs, e)
   where
     spliceL l f e = do rs <- mapM (splice f e) l
                        return $ Slist `fmap` sequence rs
@@ -110,13 +110,13 @@ p_null = Sprim $ \vs _ e -> return $ case vs of
   [Slist []] -> (return $ Sbool True, e)
   [Slist _] -> (return $ Sbool False, e)
   [v] -> (Left $ "Bad argument type: " ++ show v, e)
-  _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+  _ -> (len_fail 1 vs, e)
 
 p_cons :: Sval
 p_cons = Sprim $ \vs _ e -> return $ case vs of
   [s,Slist l] -> (Right (Slist (s:l)), e)
   [_,l] -> (Left $ "Bad type (expected list): " ++ show l, e)
-  _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 2", e)
+  _ -> (len_fail 2 vs, e)
 
 p_eq :: Sval
 p_eq = Sprim $ \vs _ e -> return (return $ Sbool . and . zipWith (==) vs $ drop 1 vs, e)
@@ -125,13 +125,13 @@ p_str :: Sval
 p_str = Sprim $ \vs _ e -> return $ case vs of
   [s@(Sstring _)] -> (Right s, e) 
   [v] -> (Right . Sstring $ show v, e)
-  _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+  _ -> (len_fail 1 vs, e)
 
 p_sym :: Sval
 p_sym = Sprim $ \vs _ e -> return $ case vs of
   [Sstring s] -> (Right . Ssym $ pack s, e)
   [v] -> (Left $ "Bad type (expected string):" ++ show v, e)
-  _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+  _ -> (len_fail 1 vs, e)
 
 f_if :: Sval
 f_if = Sform $ \vs f env -> case vs of
@@ -149,7 +149,7 @@ p_arity :: Sval
 p_arity = Sprim $ \sv _ env -> case sv of
   [Sfunc as _ _] -> return (Right . Snum . length $ let splat = bs_splat in takeWhile (\s -> s /= splat) as, env)
   [s] -> return (Left $ "Bad type: " ++ show s, env)
-  as -> return (Left $ "Wrong number of arguments: " ++ show (length as) ++ " for 1", env)
+  as -> return (len_fail 1 as, env)
 
 w_apply :: Sval
 w_apply = Sprim $ \sv f env -> case sv of
@@ -168,7 +168,7 @@ p_apply sv vs i
       | (not $ null var) && (not $ length var == 2) =
           return (Left $ "Bad variadic parameter syntax: " ++ show (params sv), env)
       | length pos > length sup || null var && length pos < length sup =
-          return (Left $ "(apply) Wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos) ++ ": " ++ show sv, env)
+          return (len_fail (length pos) sup, env)
       | otherwise = let posV = pos `zip` vs
                         varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
                         frame = (M.fromList (varV ++ posV), frameNo sv)
@@ -217,7 +217,7 @@ _eval [v] f env
     _apply nil@(Slist []) = return (return nil, env)
     _apply _ = error "_eval: _apply: unexpected pattern"
 
-_eval a _ e = return (Left $ "eval: wrong number of arguments: " ++ show (length a) ++ " for 1", e)
+_eval a _ e = return (len_fail 1 a, e)
 
 
 envLookup :: ByteString -> Int -> Env -> Either String Sval
@@ -271,7 +271,7 @@ coreBinds = M.fromList $
   , (pack "arity", p_arity)
   ]
 
-{- type predicates -}
+{- predicates for type & argument checking -}
 
 tc_str :: Sval -> Bool
 tc_str s = case s of { Sstring _ -> True; _ -> False }
@@ -299,6 +299,9 @@ tc_form s = case s of { Sform _ -> True; _ -> False }
 
 tc_fail :: Show a => (a -> Bool) -> a -> Either String ()
 tc_fail p v = if p v then return () else Left $ "Bad type: " ++ show v
+
+len_fail :: Int -> [a] -> Either String b
+len_fail n l = Left $ "Wrong number of arguments: " ++ show (length l) ++ " for " ++ show n
 
 evalList :: [Sval] -> Int -> Env -> IO ([Either String Sval], Env)
 evalList vs f e = do (rs,final) <- foldM acc ([],e) $ map (\o -> p_apply p_eval [o] f) vs

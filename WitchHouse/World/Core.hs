@@ -11,6 +11,7 @@ module WitchHouse.World.Core
 , matchName
 , zDn -- stop exporting these!
 , zUp
+, zDel
 , zUp'
 , zIns
 , focus

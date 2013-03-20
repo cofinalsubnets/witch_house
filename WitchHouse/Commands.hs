@@ -39,6 +39,7 @@ rootMap = M.fromList $
   , ("@eval", oEval)
   , ("@env", env)
   , ("@reset", reset)
+  , ("@recycle", recycle)
   ]
 
 {- NOTIFICATION HELPERS -}
@@ -56,20 +57,30 @@ help :: Command
 help _ = notify helpMsg
   where
     helpMsg = unlines $
-      [ "A superset of these commands is available:"
+      [ "In the following examples, angle brackets (`<' and `>') denote required arguments,"
+      , "and square brackets (`[' and `]') denote optional arguments."
+      , "A superset of these commands is available:"
+      , ""
+      , "basic commands:"
       , "  look"
       , "  go        <direction>"
-      , "  take      <object>"
-      , "  drop      <object>"
-      , "  enter     <object>"
+      , "  take      <thing>"
+      , "  drop      <thing>"
+      , "  enter     <thing>"
       , "  exit"
-      , "  @make     <object>"
-      , "  @link     <origin> <destination> <direction>"
-      , "  @unlink   <origin> <direction>"
       , "  say       [message]"
       , "  /me       [whatever it is that you do]"
       , "  help"
       , "  whoami"
+      , ""
+      , "building commands:"
+      , "  @make     <thing>"
+      , "  @link     <origin> <destination> <direction>"
+      , "  @unlink   <origin> <direction>"
+      , "  @eval     [thing] <lisp expression>"
+      , "  @env      <thing>"
+      , "  @recycle  <thing>"
+      , "  @reset"
       ]
 
 send :: Command
@@ -133,6 +144,16 @@ enters _ w = huh w
 makes :: Command
 makes [n] = make n >=> notify ("You make "++n++".")
 makes _ = huh
+
+recycle :: Command
+recycle [n] w = case find (matchName n) Self w of
+  Left err -> notify err w
+  Right w' -> case handle . focus $ w' of
+                Just _ -> notify "You can't recycle an active player!" w >> notify ((name . focus $ w) ++ " tried to recycle you!") w'
+                Nothing -> case contents . focus $ w' of
+                             [] -> notify ((name . focus $ w') ++ " has been recycled.") w >> return (zDel w')
+                             _ -> notify "You can't recycle a non-empty object." w
+recycle _ w = huh w
 
 reset :: Command
 reset [] (o,cs) = return (o{bindings = objlevel}, cs) >>= notify "Bindings reset."
