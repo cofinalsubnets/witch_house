@@ -163,7 +163,7 @@ p_apply sv vs i
                         (n,env') = pushFrame frame env
                     in _eval [Slist ((sym_begin):(body sv))] n env'
 
-    pushFrame f e = let n = succ . last $ M.keys e in (n, M.insert n f e)
+    pushFrame f e = let n = succ . fst $ M.findMax e in (n, M.insert n f e)
 
 
 p_eval :: Sval

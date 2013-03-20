@@ -92,12 +92,12 @@ oEval [t,s] w = case find (matchName t) (Distance 2) w of
   Left err -> notify err w
   Right w' -> do res <- evalWisp s w'
                  case res of Left err -> notify err w
-                             Right w'' -> return w''
+                             Right (v,w'') -> notify (show v) w >> return w''
 oEval [s] w = do
   res <- evalWisp s w
   case res of
     Left err -> notify err w
-    Right w' -> return w'
+    Right (v,w') -> notify (show v) w >> return w'
 oEval _ w = huh w
 
 env :: Command

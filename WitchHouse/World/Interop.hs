@@ -111,6 +111,9 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
       , "                   *self*)))"
       , "     (loc-exits (location *self*))))"
 
+      , "  (define (examine w)"
+      , "    (notify *desc* w)"
+
       , "  (define (go dir)"
       , "    (define old-self *self*)"
       , "    (set! *self* (go-dir dir *self*))"
@@ -125,18 +128,18 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
 invoke :: String -> [Sval] -> World -> IO (Either String (Sval,World))
 invoke f sv w = let (o,cs) = bindAttrs w
   in case envLookup (pack f) 0 (bindings o) of
-       Nothing -> return . Left $ "Unable to resolve symbol: " ++ f
+       Nothing -> return . Left $ "I don't know what " ++ f ++ " means."
        Just fn -> do
          res <- run (p_apply fn sv 0) (bindings o)
          return $ case res of
            (Right s,env) -> Right (s, applyAttrs env (o,cs))
            (Left err,_)  -> Left err
 
-evalWisp :: String -> World -> IO (Either String World)
+evalWisp :: String -> World -> IO (Either String (Sval, World))
 evalWisp s w = let (o,cs) = bindAttrs w in do
   res <- run (runWisp s) (bindings o)
   return $ case res of
-    (Right _, env) -> Right (applyAttrs env (o,cs))
+    (Right v, env) -> Right (v, applyAttrs env (o,cs))
     (Left err, _) -> Left err
 
 bindAttrs :: World -> World
@@ -160,7 +163,6 @@ sym_desc :: ByteString
 sym_desc = pack "*desc*"
 sym_name :: ByteString
 sym_name = pack "*name*"
-
 
 wisp_w_up :: Sval
 wisp_w_up = Sprim $ \vs _ e -> return $ case vs of

@@ -120,7 +120,7 @@ loadWorld conn = do
                              in (o,l,orig{exits = M.insert dir (objId dest) (exits orig)}):os
       addWisp js (nid,nm,wsp) = let ([(_,loc,t)],os) = partition (\(i,_,_) -> i==nid) js
                                     wstr = concat ["(define ",nm," ",wsp,")"]
-                                in do r <- evalWisp wstr (t,[])
+                                in do r <- liftM (fmap snd) $ evalWisp wstr (t,[])
                                       return $ case r of
                                         Right (t',_) -> (nid,loc,t'):os
                                         Left _ -> ((nid,loc,t):os)
