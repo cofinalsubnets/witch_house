@@ -18,7 +18,7 @@ import Control.Exception
 
 
 toplevel :: Env
-toplevel = snd . unsafePerformIO $ run defs base
+toplevel = snd . unsafePerformIO $ run (defs 0) base
   where 
     base = fromList [(0, (coreBinds, -1))]
     defs = runWisp . unlines $
@@ -150,15 +150,15 @@ repl = loop toplevel `catch` eof
                        "\\env" -> putStr (show bs) >> loop bs
                        "\\quit" -> return ()
                        "" -> loop bs
-                       _ -> do res <- run (runWisp l) bs
+                       _ -> do res <- run (runWisp l 0) bs
                                case res of
                                  (Left err, bs') -> putStr err >> loop bs'
                                  (Right v, bs') -> putStr (show v) >> loop bs'
         eof x = if isEOFError x then putStrLn "" else ioError x
 
-runWisp :: String -> Expr (Either String) Sval
-runWisp s = Expr $ \e -> case parseWisp s of
-  Right sv -> do (v,e') <- run (p_apply p_eval [sv] 0) e
+runWisp :: String -> Int -> Expr (Either String) Sval
+runWisp s f = Expr $ \e -> case parseWisp s of
+  Right sv -> do (v,e') <- run (p_apply p_eval [sv] f) e
                  return (v, gc e')
   Left err -> return (Left $ show err, e)
 

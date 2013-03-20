@@ -70,7 +70,7 @@ saveWorld w conn = do
                     mapM_ dx (M.toList $ exits o)
 
                     -- this doesn't cut it for higher-order fns
-                    mapM_ dw (filter (func . snd) . M.toList . fst $ bindings o M.! 0)
+                    mapM_ dw (filter (func . snd) . M.toList . fst $ bindings o M.! (-2))
                     mapM_ (dump $ Just oid) (contents o)
 
   dump Nothing . focus . findRoot $ w

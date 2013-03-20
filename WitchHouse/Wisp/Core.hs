@@ -121,6 +121,18 @@ p_cons = Sprim $ \vs _ e -> return $ case vs of
 p_eq :: Sval
 p_eq = Sprim $ \vs _ e -> return (return $ Sbool . and . zipWith (==) vs $ drop 1 vs, e)
 
+p_str :: Sval
+p_str = Sprim $ \vs _ e -> return $ case vs of
+  [s@(Sstring _)] -> (Right s, e) 
+  [v] -> (Right . Sstring $ show v, e)
+  _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+
+p_sym :: Sval
+p_sym = Sprim $ \vs _ e -> return $ case vs of
+  [Sstring s] -> (Right . Ssym $ pack s, e)
+  [v] -> (Left $ "Bad type (expected string):" ++ show v, e)
+  _ -> (Left $ "Wrong number of arguments: " ++ show (length vs) ++ " for 1", e)
+
 f_if :: Sval
 f_if = Sform $ \vs f env -> case vs of
   [cond, y, n] -> do
@@ -135,7 +147,7 @@ f_begin = Sform $ \sv f -> run $ foldl1 (>>) $ map (\o -> p_apply p_eval [o] f) 
 
 p_arity :: Sval
 p_arity = Sprim $ \sv _ env -> case sv of
-  [Sfunc as _ _] -> return (Right . Snum . length $ let splat = pack "." in takeWhile (\s -> s /= splat) as, env)
+  [Sfunc as _ _] -> return (Right . Snum . length $ let splat = bs_splat in takeWhile (\s -> s /= splat) as, env)
   [s] -> return (Left $ "Bad type: " ++ show s, env)
   as -> return (Left $ "Wrong number of arguments: " ++ show (length as) ++ " for 1", env)
 
@@ -151,7 +163,7 @@ p_apply sv vs i
   | tc_func sv || tc_macro sv = Expr $ apply posArgs splat vs
   | otherwise = Expr $ return  . (Left $ "Non-applicable value: " ++ show sv,)
   where
-    (posArgs, splat) = break (== pack ".") (params sv)
+    (posArgs, splat) = break (== bs_splat) (params sv)
     apply pos var sup env
       | (not $ null var) && (not $ length var == 2) =
           return (Left $ "Bad variadic parameter syntax: " ++ show (params sv), env)
@@ -180,15 +192,13 @@ _eval [v] f env
   where
 
     prim sv = or $ map ($sv) [tc_str, tc_bool, tc_num, tc_func, tc_prim, tc_world, tc_form]
-    spec sv = case sv of Slist (Ssym s:_) -> s `M.member` specialForms
-                         _ -> False
+    spec (Slist (Ssym s:_)) = s `M.member` specialForms
+    spec _ = False
 
     _apply_spec (Slist ((Ssym s):t)) = let Sform form = specialForms M.! s in form t f env
     _apply_spec _ = error "_eval: _apply_spec: unexpected pattern"
 
-    _eval_var (Ssym sv) = return $ case envLookup sv f env of
-                            Just val -> (return val, env)
-                            Nothing -> (Left $ "Unable to resolve symbol: " ++ show sv, env)
+    _eval_var (Ssym sv) = return (envLookup sv f env, env)
     _eval_var _ = error "_eval: _eval_var: unexpected pattern"
 
     _apply (Slist (o:vs)) = do
@@ -210,18 +220,16 @@ _eval [v] f env
 _eval a _ e = return (Left $ "eval: wrong number of arguments: " ++ show (length a) ++ " for 1", e)
 
 
-envLookup :: ByteString -> Int -> Env -> Maybe Sval
-envLookup _ (-1) _ = Nothing 
+envLookup :: ByteString -> Int -> Env -> Either String Sval
+envLookup s (-1) _ = Left $ "Unable to resolve symbol: " ++ show s
 envLookup s f env = let (binds,nxt) = env M.! f in
   case M.lookup s binds of Nothing -> envLookup s nxt env
-                           Just v -> Just v
+                           Just v -> Right v
 
 -- | VERY primitive reference-counting garbage collection.
 gc :: Env -> Env
-gc env = foldl (flip M.delete) env (M.keys env \\ nub ks)
-  where ks = [0] ++ (map frame . filter func $ concatMap M.elems (map fst $ M.elems env))
-        func sv = case sv of { Sfunc _ _ _ -> True; _ -> False }
-        frame sv = case sv of { Sfunc _ _ n -> n; _ -> error $ "gc: bad Sval type: " ++ show sv }
+gc env = foldl (flip M.delete) env (M.keys env \\ ks)
+  where ks = [0] ++ (map frameNo . filter tc_func $ concatMap M.elems (map fst $ M.elems env))
 
 specialForms :: M.Map ByteString Sval
 specialForms = M.fromList $
@@ -246,6 +254,8 @@ coreBinds = M.fromList $
   , (pack "eval",   p_eval  )
   , (pack "cat",    p_cat   )
   , (pack "apply",  w_apply )
+  , (pack "string", p_str)
+  , (pack "symbol", p_sym)
   , (pack "bool?", check tc_bool)
   , (pack "string?", check tc_str)
   , (pack "number?", check tc_num)
@@ -302,7 +312,7 @@ check p = Sprim $ \vs f e -> do
     Right vs'' -> return (return . Sbool $ all p vs'', e)
     Left err -> return (Left err,e)
 
-{- symbol literals -}
+{- symbol & bytestring constants -}
 sym_if :: Sval
 sym_if = Ssym $ pack "if"
 sym_begin :: Sval
@@ -311,4 +321,6 @@ sym_lambda :: Sval
 sym_lambda = Ssym $ pack "lambda"
 sym_splice :: Sval
 sym_splice = Ssym $ pack "splice"
+bs_splat :: ByteString
+bs_splat = pack "."
 

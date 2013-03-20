@@ -23,9 +23,11 @@ import Data.ByteString (ByteString)
 
 -- wisp is in IO but this is actually pure when run against
 -- the default toplevel.
+-- the -2 thing is a _really_ ugly hack.
 objlevel :: Env
-objlevel = snd . unsafePerformIO $ run defs toplevel'
+objlevel = M.insert (-2) (M.fromList [], 0) f0
   where
+    f0 = snd . unsafePerformIO $ run (defs 0) toplevel'
     tl = fst $ toplevel M.! 0
     toplevel' = M.insert 0 (objBindings `M.union` tl, -1) toplevel
     objBindings = M.fromList $
@@ -127,17 +129,17 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
 
 invoke :: String -> [Sval] -> World -> IO (Either String (Sval,World))
 invoke f sv w = let (o,cs) = bindAttrs w
-  in case envLookup (pack f) 0 (bindings o) of
-       Nothing -> return . Left $ "I don't know what " ++ f ++ " means."
-       Just fn -> do
-         res <- run (p_apply fn sv 0) (bindings o)
+  in case envLookup (pack f) (-2) (bindings o) of
+       Left _ -> return . Left $ "I don't know what " ++ f ++ " means."
+       Right fn -> do
+         res <- run (p_apply fn sv (-2)) (bindings o)
          return $ case res of
            (Right s,env) -> Right (s, applyAttrs env (o,cs))
            (Left err,_)  -> Left err
 
 evalWisp :: String -> World -> IO (Either String (Sval, World))
 evalWisp s w = let (o,cs) = bindAttrs w in do
-  res <- run (runWisp s) (bindings o)
+  res <- run (runWisp s $ -2) (bindings o)
   return $ case res of
     (Right v, env) -> Right (v, applyAttrs env (o,cs))
     (Left err, _) -> Left err
