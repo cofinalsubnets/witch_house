@@ -112,7 +112,7 @@ objlevel = snd . unsafePerformIO $ run defs toplevel'
       , "     (loc-exits (location *self*))))"
 
       , "  (define (examine w)"
-      , "    (notify *desc* w)"
+      , "    (notify *desc* w))"
 
       , "  (define (go dir)"
       , "    (define old-self *self*)"
