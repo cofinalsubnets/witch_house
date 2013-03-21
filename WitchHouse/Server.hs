@@ -15,7 +15,6 @@ import WitchHouse.World
 import WitchHouse.Types
 import WitchHouse.Commands
 import WitchHouse.Version
-import WitchHouse.Wisp
 --import WitchHouse.Persistence
 
 
@@ -150,16 +149,5 @@ mkLogger h fmt vl vm msg = when (vl >= vm) $ do
 mkPlayer :: String -> String -> Handle -> IO Obj
 mkPlayer n pw h = do
   o <- mkObj
-  eval defs $ frameId o
   return o{name = n, password = Just pw, handle = Just h}
-  where
-    -- TODO: pre-parse this
-    defs = unlines $
-      [ "(begin"
-      , "  (define (look)"
-      , "    (looks *self*))"
-      , "  (define (exit)"
-      , "    (exit-room *self*))"
-      , ")"
-      ]
 

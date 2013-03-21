@@ -17,6 +17,8 @@ module WitchHouse.World.Core
 , focus
 , context
 , owns
+, make
+, mkObj
 ) where
 
 import Data.List hiding (find, take, drop)
@@ -24,11 +26,34 @@ import qualified Data.List as List (find)
 import Prelude hiding (take, drop)
 import Control.Monad (liftM)
 import qualified Data.Map as M
-import qualified Data.Set as S (member)
+import qualified Data.Set as S (member, fromList)
+import WitchHouse.Wisp (toplevel, pushFrame)
+import Data.Unique (newUnique)
 
 import WitchHouse.Types
 
 {- CONSTRUCTORS & HIGH-LEVEL TRANSFORMS -}
+
+-- | Insert a new obj into the world with the given name.
+make :: String -> World -> IO World
+make n w = mkObj >>= \o -> return . zUp' $ zIns o {name = n, owners = S.fromList [objId $ focus w]} w
+
+-- | Create a new obj. In IO because we need to grab a new Unique identifier.
+mkObj :: IO Obj
+mkObj = do
+  i <- newUnique
+  n <- pushFrame (M.fromList [], Just toplevel)
+  return Obj { name        = ""
+             , description = ""
+             , objId       = i
+             , exits       = M.fromList []
+             , contents    = []
+             , handle      = Nothing
+             , password    = Nothing
+             , owners      = S.fromList []
+             , start       = False
+             , frameId     = n
+             }
 
 owns :: Obj -> Obj -> Bool
 o1 `owns` o2 = objId o1 `S.member` owners o2

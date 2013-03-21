@@ -10,9 +10,12 @@ module WitchHouse.World.Interop
 
 import WitchHouse.Types
 import WitchHouse.World.Core
+import WitchHouse.World.Global
 import WitchHouse.Wisp
-import WitchHouse.Wisp.Core (envLookup, p_apply)
+import WitchHouse.Wisp.Core (envLookup, p_apply, p_eval)
 import Data.List (delete)
+import Control.Monad (liftM)
+import Data.IORef
 
 import qualified Data.Map as M
 
@@ -45,13 +48,11 @@ bootstrap = do
       , (pack "go-dir", wisp_go)
       , (pack "add-owner", wisp_add_owner)
       , (pack "del-owner", wisp_del_owner)
+      , (pack "self", wisp_self)
       ]
 
     defs = unlines $
       [ "(begin"
-
-      , "  (define (quiet-exit)"
-      , "    (set! *self* (w-up *self*)))"
 
       , "  (define (enter n)"
       , "    ((lambda (dest)"
@@ -89,8 +90,15 @@ bootstrap = do
       , "            p))"
 
 
-      , "  (define (whoami)"
-      , "    (notify *name* *self*))"
+      , "  (define whoami (macro ()"
+      , "    `(let ((me (self)))"
+      , "       (notify (name me) me))))"
+
+      , "  (define look (macro ()"
+      , "    `(looks (self))))"
+
+      , "  (define exit (macro ()"
+      , "    `(exit-room (self))))"
 
       , "  (define (inventory)"
       , "    ((lambda (i)"
@@ -102,17 +110,17 @@ bootstrap = do
       , "                   *self*)))"
       , "     (contents *self*)))"
 
-      , "  (define (exits)"
-      , "    ((lambda (xs)"
+      , "  (define exits (macro ()"
+      , "    `(let ((me (self))"
+      , "           (xs (loc-exits (location (self)))))"
       , "       (if (null? xs)"
-      , "           (notify \"There are no exits from your current location.\""
-      , "                   *self*)"
+      , "           (notify \"There are no exits from your current location.\" me)"
       , "           (notify (join (cons \"The following exits are available: \""
       , "                               xs)"
       , "                         \"\n\")"
-      , "                   *self*)))"
-      , "     (loc-exits (location *self*))))"
+      , "                   me)))))"
 
+      
       , "  (define (examine w)"
       , "    (notify *desc* w))"
 
@@ -132,14 +140,14 @@ invoke f sv w = do
   let frame = frameId $ focus w
   lu <- envLookup (pack f) (Just frame)
   case lu of
-       Left _ -> return . Left $ "I don't know what " ++ f ++ " means."
-       Right fn -> do
-         bindAttrs w
-         res <- p_apply fn sv frame
-         case res of
-           Right s -> let w' = case s of { Sworld z -> z; _ -> w }
-                      in applyAttrs w' >>= return . Right . (s,)
-           Left err -> return $ Left err
+    Left _ -> return . Left $ "I don't know what " ++ f ++ " means."
+    Right fn -> do
+      bindAttrs w
+      res <- p_apply p_eval [Slist (fn:sv)] frame
+      case res of
+        Right s -> let w' = case s of { Sworld z -> z; _ -> w }
+                   in applyAttrs w' >>= return . Right . (s,)
+        Left err -> return $ Left err
 
 evalOn :: String -> World -> IO (Either String (Sval, World))
 evalOn s w = do
@@ -152,10 +160,9 @@ evalOn s w = do
     Left err -> return $ Left err
 
 bindAttrs :: World -> IO ()
-bindAttrs w@(o@(Obj{frameId = f}),_) = do
+bindAttrs (o@(Obj{frameId = f}),_) = do
   bind f sym_name $ Sstring (name o)
   bind f sym_desc $ Sstring (description o)
-  bind f sym_self $ Sworld w
 
 applyAttrs :: World -> IO World
 applyAttrs w = do
@@ -165,8 +172,6 @@ applyAttrs w = do
     apName fm w'@(f,cs) = case M.lookup sym_name fm of { Just (Sstring n) -> (f{name = n},cs); _ -> w' }
     apDesc fm w'@(f,cs) = case M.lookup sym_desc fm of { Just (Sstring d) -> (f{description = d},cs); _ -> w' }
 
-sym_self :: ByteString
-sym_self = pack "*self*"
 sym_desc :: ByteString
 sym_desc = pack "*desc*"
 sym_name :: ByteString
@@ -231,7 +236,7 @@ wisp_go = Sprim $ \vs _ -> return $ case vs of
 
 wisp_neighbour :: Sval
 wisp_neighbour = Sprim $ \vs i -> do
-  self <- eval "*self*" i
+  self <- eval "(self)" i
   case self of
     Right (Sworld s) -> return $ case vs of
       [Sstring n] -> Sworld `fmap` find (matchName n) Location s
@@ -243,7 +248,7 @@ wisp_neighbour = Sprim $ \vs i -> do
 wisp_add_owner :: Sval
 wisp_add_owner = Sprim $ \vs i -> case vs of
   [Sworld (f,c), Sworld t@(o,_)] -> do
-    v <- eval "*self*" i
+    v <- eval "(self)" i
     case v of
       Right (Sworld (vf,_)) -> if vf `owns` f then do
                                  notify ("You now own " ++ name f ++ ".") t
@@ -253,10 +258,15 @@ wisp_add_owner = Sprim $ \vs i -> case vs of
       Left err -> return $ Left err
   _ -> return . Left $ "bad arguments: " ++ show vs
 
+wisp_self :: Sval
+wisp_self = Sprim $ \_ i -> do
+  w <- liftM (find' ((==i) . frameId) Global) $ readIORef world
+  return . Right $ Sworld w
+
 wisp_del_owner :: Sval
 wisp_del_owner = Sprim $ \vs i -> case vs of
   [Sworld (f,c), Sworld t@(o,_)] -> do
-    v <- eval "*self*" i
+    v <- eval "(self)" i
     case v of
       Right (Sworld (vf,_)) -> if vf `owns` f then do
                                  notify ("You no longer own " ++ name f ++ ".") t
