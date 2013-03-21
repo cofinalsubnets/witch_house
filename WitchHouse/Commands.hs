@@ -1,60 +1,40 @@
 {-# LANGUAGE BangPatterns #-}
 module WitchHouse.Commands
 ( parseCommand
-, rootMap
 ) where
 
 import WitchHouse.World
 import WitchHouse.Types
-import Data.List (isPrefixOf)
-import Data.Map (Map)
+import WitchHouse.Wisp
 import qualified Data.Map as M
-import Data.Char
 import System.IO
 import Control.Monad ((>=>))
+import Prelude hiding (take, drop)
+import qualified Data.Set as S
+
+import Text.ParserCombinators.Parsec
+import Control.Applicative hiding ((<|>), many, optional)
 
 
-type Command = [String] -> WIO
-type WIO     = World -> IO World
+type Command = World -> IO World
 
 -- | Parse an input string into a command using the given
 -- command map.
-parseCommand :: Map String Command -> String -> WIO
-parseCommand cm s = case tokenize s of
-  Just (c:args) -> mLookup c cm args
-  _ -> huh
-
--- | Default command map.
-rootMap :: Map String Command
-rootMap = M.fromList $
-  [ ("enter", enters)
-  , ("go",   goes)
-  , ("@make", makes)
-  , ("quit", quit)
-  , ("@link", links)
-  , ("@unlink", unlinks)
-  , ("say", say)
-  , ("/me", me)
-  , ("help", help)
-  , ("@eval", oEval)
-  , ("@env", env)
-  , ("@reset", reset)
-  , ("@recycle", recycle)
-  ]
+parseCommand :: String -> Command
+parseCommand s = case parse command "" s of
+  Left e -> notify (show e)-- notify $ "I don't know what `" ++ s ++ "' means."
+  Right c -> c
 
 {- NOTIFICATION HELPERS -}
 
-notifyResult :: (World -> Either String World) -> WIO -> WIO
+notifyResult :: (World -> Either String World) -> Command -> Command
 notifyResult wt wio w = case wt w of Left err -> notify err w
                                      Right w' -> wio $ find' (==focus w) Global w'
-
-huh :: WIO
-huh = notify "Huh?"
 
 {- COMMANDS -}
 
 help :: Command
-help _ = notify helpMsg
+help = notify helpMsg
   where
     helpMsg = unlines $
       [ "In the following examples, angle brackets (`<' and `>') denote required arguments,"
@@ -74,143 +54,179 @@ help _ = notify helpMsg
       , "  whoami"
       , ""
       , "building commands:"
-      , "  @make     <thing>"
-      , "  @link     <origin> <destination> <direction>"
-      , "  @unlink   <origin> <direction>"
-      , "  @eval     [thing] <lisp expression>"
-      , "  @env      <thing>"
-      , "  @recycle  <thing>"
-      , "  @reset"
+      , "  make     <thing>"
+      , "  link     <origin> <destination> <direction>"
+      , "  unlink   <origin> <direction>"
+      , "  recycle  <thing>"
+      , ""
+      , "lisp interaction (s-expressions will be automatically evaluated):"
+      , "  bindings"
+      , "  reset"
+      , ""
+      , "Entering a nullary command not listed here will attempt to call the lisp function"
+      , "of the same name - if present in your environment - with no arguments. Note that"
+      , "several basic commands are implemented in lisp, so *redefine them at your own risk*."
+      , "You can use the `reset' command to restore your environment if it becomes corrupted."
       ]
 
-send :: Command
-send [actn,t] w = case find (matchName t) (Distance 2) w of
-  Left err -> notify err w
-  Right w' -> do res <- invoke actn [Sworld w] w'
-                 case res of
-                   Left err -> notify err w
-                   Right (_,w'') -> return w''
-
-send [actn] w = do
+send :: String -> Command
+send actn w = do
   res <- invoke actn [] w
-  case res of
-    Left err -> notify err w
-    Right (_,w') -> return w'
-send _ w = huh w
+  case res of Left err -> notify err w
+              Right (_,w') -> return w'
 
-oEval :: Command
-oEval [t,s] w = case find (matchName t) (Distance 2) w of
-  Left err -> notify err w
-  Right w' -> do res <- evalWisp s w'
-                 case res of Left err -> notify err w
-                             Right (v,w'') -> notify (show v) w >> return w''
-oEval [s] w = do
-  res <- evalWisp s w
-  case res of
-    Left err -> notify err w
-    Right (v,w') -> notify (show v) w >> return w'
-oEval _ w = huh w
+bindings :: Command
+bindings w = do
+  (m,_) <- getFrame (frameId $ focus w)
+  notify (show m) w
 
-env :: Command
-env [t] w = case find (matchName t) (Distance 2) w of
-  Left err -> notify err w
-  Right t' -> notify (show . bindings . focus $ t') w
-env _ w = huh w
 
 quit :: Command
-quit [] (f,c) = case handle f of
+quit (f,c) = case handle f of
   Nothing -> return (f,c)
   Just h -> do hPutStrLn h "Bye!"
                hClose h
                return (f{handle = Nothing},c)
 
-quit _ w = huh w
-
-goes :: Command
-goes [dir] w = do
+goes :: String -> Command
+goes dir w = do
   res <- invoke "go" [Sstring dir] w
   case res of
     Left err -> notify err w
     Right (_,w') -> return w'
-goes _ w = huh w
 
-enters :: Command
-enters [n] w = case enter (matchName n) w of
+enters :: String -> Command
+enters n w = case enter (matchName n) w of
   Left err -> notify err w
   Right w' -> do (++ " enters "++(name . focus . zUp' $ w')++".") . name . focus >>= notifyExcept $ w
-                 send ["look"] w' >>= ((++" enters.") . name . focus >>= notifyExcept)
-enters _ w = huh w
+                 send "look" w' >>= ((++" enters.") . name . focus >>= notifyExcept)
 
-makes :: Command
-makes [n] = make n >=> notify ("You make "++n++".")
-makes _ = huh
+makes :: String -> Command
+makes n = make n >=> notify ("You make "++n++".")
 
-recycle :: Command
-recycle [n] w = case find (matchName n) Self w of
+recycle :: String -> Command
+recycle n w = case find (matchName n) Self w of
   Left err -> notify err w
   Right w' -> case handle . focus $ w' of
                 Just _ -> notify "You can't recycle an active player!" w >> notify ((name . focus $ w) ++ " tried to recycle you!") w'
                 Nothing -> case contents . focus $ w' of
-                             [] -> notify ((name . focus $ w') ++ " has been recycled.") w >> return (zDel w')
+                             [] -> do notify ((name $ focus w') ++ " has been recycled.") w
+                                      dropFrame . frameId $ focus w'
+                                      return $ zDel w'
                              _ -> notify "You can't recycle a non-empty object." w
-recycle _ w = huh w
 
 reset :: Command
-reset [] (o,cs) = return (o{bindings = objlevel}, cs) >>= notify "Bindings reset."
-reset _ w = huh w
+reset (o@(Obj{frameId = f}),cs) = do
+  dropFrame f
+  f' <- pushFrame (M.fromList [], Just toplevel)
+  return (o{frameId = f'}, cs) >>= notify "Bindings reset."
 
-links :: Command
-links [dir,dest] = notifyResult (\w -> zUp w >>= link dir (matchName dest) >>= find (focus w ==) Self) $
+links :: String -> String -> Command
+links dir dest = notifyResult (\w -> zUp w >>= link dir (matchName dest) >>= find (focus w ==) Self) $
                    notify ("Linked: "++dir++" => "++dest)
-links _ = huh
 
-unlinks :: Command
-unlinks [dir] = notifyResult (\w -> zUp w >>= unlink dir >>= find (focus w==) Self) (notify $ "Unlinked: "++dir)
-unlinks _ = huh
+unlinks :: String -> Command
+unlinks dir = notifyResult (\w -> zUp w >>= unlink dir >>= find (focus w==) Self) (notify $ "Unlinked: "++dir)
 
-say :: Command
-say [] = notify "Say what?"
-say m = let msg = unwords m in notify ("You say \""++msg++"\"") >=> ((++" says \""++msg++"\"") . name . focus >>= notifyExcept)
+say :: String -> Command
+say msg = notify ("You say \""++msg++"\"") >=> ((++" says \""++msg++"\"") . name . focus >>= notifyExcept)
 
-me :: Command
-me [] = notify "What do you do?"
-me m = let msg = unwords . (:m) . name . focus in (msg >>= notify) >=> (msg >>= notifyExcept)
+me :: String -> Command
+me msg = notify msg >=> notifyExcept msg
 
-{- PARSING HELPERS -}
+evals :: String -> Command
+evals s w = do
+  res <- s `evalOn` w
+  case res of Left err -> notify err w
+              Right (v,w') -> notify (show v) w >> return w'
 
-mLookup :: String -> Map String Command -> Command
-mLookup k cm = case M.lookup k cm of
-  Just c -> c
-  Nothing -> case filter (isPrefixOf k) (M.keys cm) of
-    [m] -> cm M.! m
-    [] -> \as -> send (k:as)
-    ms -> \_ -> notify ("You could mean: " ++ show ms)
-  
+evalIn :: String -> String -> Command
+evalIn l t w = case find (matchName t) Location w of
+  Left err -> notify err w
+  Right t' -> if (objId $ focus w) `S.member` (owners $ focus t') then evals l t'
+              else notify "You aren't allowed to do that." w
 
--- | TODO: Write tests for this. Make it generally suck less.
--- maybe use parsec
-tokenize :: String -> Maybe [String]
-tokenize s = sequence $ unquoted s []
+takes :: String -> Command
+takes n w = case take (matchName n) w of
+  Left err -> notify err w
+  Right w' -> do notify ("You take " ++ (name $ focus w') ++ ".") w
+                 notifyExcept ((name $ focus w) ++ " takes " ++ (name $ focus w')) (zUp' w')
+                 notify ((name $ focus w) ++ " takes you!") w'
+
+drops :: String -> Command
+drops n w = case drop (matchName n) w of
+  Left err -> notify err w
+  Right w' -> do notify ("You drop " ++ (name $ focus w') ++ ".") w               
+                 notifyExcept ((name $ focus w) ++ " drops " ++ (name $ focus w')) w
+                 notify ((name $ focus w) ++ " drops you!") w'
+                 send "look" w'
+
+
+command :: GenParser Char st Command
+command = optional whitespace *> (wispExpr <|> targetedExpr <|> cmd)
+
   where
-    unquoted [] [] = []
-    unquoted [] a = [Just $ reverse a]
-    unquoted (c:cs) a
-      | isSpace c && null a = unquoted cs a
-      | isSpace c = (Just $ reverse a):(unquoted cs [])
-      | isQuote c && null a = quoted c cs a
-      | isQuote c = (Just $ reverse a):(quoted c cs [])
-      | isEscape c = escape unquoted cs a
-      | otherwise = unquoted cs (c:a)
+    whitespace = many1 $ oneOf " \n\r\t"
 
-    quoted _ [] _ = [Nothing]
-    quoted q (c:cs) a
-      | c == q && null a = unquoted cs []
-      | c == q = (Just $ reverse a):(unquoted cs [])
-      | isEscape c = escape (quoted q) cs a
-      | otherwise = quoted q cs (c:a)
+    wispExpr = evals `fmap` ((:) <$> char '(' <*> many anyChar)
 
-    isQuote c = c `elem` "`'\""
-    isEscape c = c == '\\'
-    escape _ [] _ = [Nothing]
-    escape mode (c:cs) acc = mode cs (c:acc)
+    targetedExpr = do
+      char '@'
+      target <- str
+      expr <- many anyChar
+      return $ evalIn expr target
+
+    eof' = optional whitespace <* eof
+
+    unary s   = try $ string s *> whitespace *> str <* eof'
+    nullary s = try $ string s <* eof'
+    binary s  = try $ do
+      string s
+      whitespace
+      s1 <- str
+      s2 <- str
+      eof'
+      return [s1,s2]
+
+
+    stringQuotedBy c = char c *> many cs <* char c
+      where cs = try (string ['\\',c] >> return c) <|> noneOf [c]
+
+    str =  stringQuotedBy '\''
+       <|> stringQuotedBy '\"'
+       <|> stringQuotedBy '`'
+       <|> (many (noneOf " \n\r\t") <* optional whitespace)
+
+
+    cmd =  cEnter
+       <|> cGo
+       <|> cMake
+       <|> cTake
+       <|> cDrop
+       <|> cQuit
+       <|> cLink
+       <|> cUnlink
+       <|> cSay
+       <|> cEmote
+       <|> cReset
+       <|> cRecycle
+       <|> cBindings
+       <|> cHelp
+       <|> cSend
+
+    cEnter    = enters `fmap` unary "enter"
+    cGo       = goes `fmap` unary "go"
+    cMake     = makes `fmap` unary "make"
+    cTake     = takes `fmap` unary "take"
+    cDrop     = drops `fmap` unary "drop"
+    cQuit     = nullary "quit" >> return quit
+    cLink     = binary "link" >>= \[dir,dest] -> return $ links dir dest
+    cUnlink   = unlinks `fmap` unary "unlink"
+    cSay      = say `fmap` try (string "say" *> whitespace *> many1 anyChar)
+    cEmote    = me `fmap` try (string "\\me" *> whitespace *> many1 anyChar)
+    cReset    = nullary "reset" >> return reset
+    cRecycle  = recycle `fmap` unary "recycle"
+    cBindings = nullary "bindings" >> return bindings
+    cHelp     = nullary "help" >> return help
+    cSend     = many anyChar >>= return . send
 

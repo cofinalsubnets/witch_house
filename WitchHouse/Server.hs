@@ -2,9 +2,9 @@ module WitchHouse.Server (startServer) where
 
 import Control.Monad
 import Control.Concurrent
-import Control.Concurrent.STM
 import Control.Exception (try, SomeException)
 import Data.Time
+import Data.IORef
 import Network
 import System.IO
 import System.Exit
@@ -15,20 +15,23 @@ import WitchHouse.World
 import WitchHouse.Types
 import WitchHouse.Commands
 import WitchHouse.Version
-import WitchHouse.Persistence
+import WitchHouse.Wisp
+--import WitchHouse.Persistence
 
 
 startServer :: Options -> IO ()
 startServer opts = do
   let logger = mkLogger (logHandle opts) "%H:%M:%S %z"(verbosity opts)
-  tmw <- atomically . newTMVar $ initialState opts
+  sem <- newMVar ()
   sock <- listenOn $ PortNumber (fromIntegral . portNo $ opts)
 
   logger V1 $ "Listening on port " ++ show (portNo opts)
 
+{-
   when (persistent opts) $ do
     _ <- forkIO $ persist tmw (autosave opts) (dbPath opts) logger
     return ()
+    -}
 
   forever $ do
     (h,hn,p) <- accept sock
@@ -39,8 +42,9 @@ startServer opts = do
     hSetNewlineMode h universalNewlineMode
 
     -- Start the user session.
-    forkFinally (session h tmw) (\_ -> logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p)
+    forkFinally (session h sem) (\_ -> logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p)
 
+{-
 persist :: TMVar World -> Int -> FilePath -> Logger -> IO ()
 persist tmw i f l = do
   threadDelay $ 1000000 * i
@@ -50,31 +54,34 @@ persist tmw i f l = do
   saveWorld w conn
   disconnect conn
   persist tmw i f l
+  -}
 
-session :: Handle -> TMVar World -> IO ()
-session h tmw = do
-  li <- timeout 60000000 $ login h tmw -- 1 min. timeout for login
+session :: Handle -> MVar () -> IO ()
+session h sem = do
+  li <- timeout 60000000 $ login h sem -- 1 min. timeout for login
   case join li of
     Nothing -> return ()
     Just n  -> forever $ do
       stop <- hIsClosed h
       when stop exitSuccess
       c <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
-      w <- liftM (find' (n==) Global) (atomically $ takeTMVar tmw) -- TODO: better error handling here
+      takeMVar sem
+      w <- liftM (find' (n==) Global) (readIORef world) -- TODO: better error handling here
       res <- timeout 1000000 . try $ handleCommand c w :: IO (Maybe (Either SomeException World))
       case res of
         Nothing -> do
           hPutStrLn h "Operation failed due to timeout."
-          atomically $ putTMVar tmw w
+          writeIORef world w
         Just (Left x) -> do
           hPutStrLn h $ "An error occurred: " ++ show x
-          atomically $ putTMVar tmw w
-        Just (Right w') -> atomically $ putTMVar tmw w'
+          writeIORef world w
+        Just (Right w') -> writeIORef world w'
+      putMVar sem ()
 
   where
-    handleCommand c = case c of Nothing -> parseCommand rootMap "quit"
+    handleCommand c = case c of Nothing -> parseCommand "quit"
                                 Just "" -> return
-                                Just c' -> parseCommand rootMap c'
+                                Just c' -> parseCommand c'
 
 
 connectMsg :: String
@@ -86,15 +93,15 @@ welcomeMsg (Obj {name=n}) _ = "Welcome, " ++ n ++ "."
 -- | Handle a login request. The request will fail if someone is already
 -- logged in with the given name; otherwise, the client will be attached to
 -- the object with the given name (one will be created if it doesn't exist).
-login :: Handle -> TMVar World -> IO (Maybe Obj)
-login h tmw = do
+login :: Handle -> MVar () -> IO (Maybe Obj)
+login h sem = do
   -- login
   hPutStrLn h connectMsg
   hPutStr h "Name: " >> hFlush h
 
   n <- hGetLine h
-  w <- atomically $ readTMVar tmw
-
+  takeMVar sem
+  w <- readIORef world
   case find ((n==).name) Global w of
     Right o -> case (password.focus) o of
       Just pw -> do hPutStr h "Password: " >> hFlush h
@@ -108,13 +115,12 @@ login h tmw = do
 
   where
 
-    loginFailure s = do hPutStrLn h s
-                        hClose h
-                        return Nothing
+    loginFailure s = hPutStrLn h s >> hClose h >> return Nothing
 
-    loginExisting (p,_) = do w <- atomically $ takeTMVar tmw
+    loginExisting (p,_) = do w <- readIORef world
                              let (p',c) = find' (p==) Global w
-                             atomically $ putTMVar tmw (p'{handle = Just h},c)
+                             writeIORef world (p'{handle = Just h},c)
+                             putMVar sem ()
                              hPutStrLn h (welcomeMsg p' (p',c)) >> hFlush h
                              return $ Just p'
 
@@ -123,14 +129,15 @@ login h tmw = do
                     pw <- hGetLine h
 
                     -- make a new obj
-                    o <- mkObj
-                    w <- atomically $ takeTMVar tmw
-                    let o' = o{name = s, handle = Just h, password = Just pw}
-                        w' = zIns o' $ find' start Global w
+                    o <- mkPlayer s pw h
 
-                    atomically $ putTMVar tmw w'
-                    hPutStrLn h (welcomeMsg o' w') >> hFlush h
-                    return $ Just o'
+                    w <- readIORef world
+                    let w' = zIns o $ find' start Global w
+                    writeIORef world w'
+
+                    putMVar sem ()
+                    hPutStrLn h (welcomeMsg o w') >> hFlush h
+                    return $ Just o
 
 type Logger = Verbosity -> String -> IO ()
 
@@ -139,4 +146,20 @@ mkLogger h fmt vl vm msg = when (vl >= vm) $ do
   time <- getCurrentTime
   let timestamp = formatTime defaultTimeLocale fmt time
   hPutStrLn h $ unwords [timestamp, "|", msg]
+
+mkPlayer :: String -> String -> Handle -> IO Obj
+mkPlayer n pw h = do
+  o <- mkObj
+  eval defs $ frameId o
+  return o{name = n, password = Just pw, handle = Just h}
+  where
+    -- TODO: pre-parse this
+    defs = unlines $
+      [ "(begin"
+      , "  (define (look)"
+      , "    (looks *self*))"
+      , "  (define (exit)"
+      , "    (exit-room *self*))"
+      , ")"
+      ]
 

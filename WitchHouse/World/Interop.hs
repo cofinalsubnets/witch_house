@@ -1,7 +1,8 @@
+{-# LANGUAGE TupleSections #-}
 module WitchHouse.World.Interop
-( objlevel
+( bootstrap
 , invoke
-, evalWisp
+, evalOn
 , notify
 , notifyExcept
 ) where
@@ -16,35 +17,37 @@ import Data.List (delete)
 import qualified Data.Map as M
 
 import System.IO (hPutStrLn, hFlush)
-import System.IO.Unsafe (unsafePerformIO)
 
 import Data.ByteString.Char8 (pack)
 import Data.ByteString (ByteString)
 
--- wisp is in IO but this is actually pure when run against
--- the default toplevel.
--- the -2 thing is a _really_ ugly hack.
-objlevel :: Env
-objlevel = M.insert (-2) (M.fromList [], 0) f0
+import qualified Data.Set as S (member, insert, delete)
+
+bootstrap :: IO ()
+bootstrap = do
+  mapM_ (\(k,v) -> bind toplevel k v) primitives
+  eval defs toplevel
+  return ()
+
   where
-    f0 = snd . unsafePerformIO $ run (defs 0) toplevel'
-    tl = fst $ toplevel M.! 0
-    toplevel' = M.insert 0 (objBindings `M.union` tl, -1) toplevel
-    objBindings = M.fromList $
+    primitives =
       [ (pack "notify", wisp_notify)
       , (pack "notify-room", wisp_notify_loc)
       , (pack "contents", wisp_w_contents)
+      , (pack "neighbour", wisp_neighbour)
       , (pack "name", wisp_w_name)
       , (pack "desc", wisp_w_desc)
       , (pack "w-up", wisp_w_up)
       , (pack "w-dn", wisp_w_dn)
       , (pack "location", wisp_w_loc)
-      , (pack "find", wisp_find)
+      , (pack "owner?", wisp_owner_p)
       , (pack "loc-exits", wisp_exits)
       , (pack "go-dir", wisp_go)
+      , (pack "add-owner", wisp_add_owner)
+      , (pack "del-owner", wisp_del_owner)
       ]
 
-    defs = runWisp . unlines $
+    defs = unlines $
       [ "(begin"
 
       , "  (define (quiet-exit)"
@@ -58,9 +61,6 @@ objlevel = M.insert (-2) (M.fromList [], 0) f0
       , "       (look))"
       , "     (if (world? n) (name n) n)))"
 
-      , "  (define (join strs j)"
-      , "    (fold (lambda (s1 s2) (cat s1 j s2)) (car strs) (cdr strs)))"
-
       , "  (define (take w)"
       , "    (enter"
       , "      (notify-room (cat \"You take \" *name* \".\")"
@@ -73,20 +73,20 @@ objlevel = M.insert (-2) (M.fromList [], 0) f0
       , "                 (cat (name w) \" drops \" *name* \".\")"
       , "                 w))"
 
-      , "  (define (exit)"
-      , "    (notify-room \"\" (cat *name* \" leaves.\") *self*)"
-      , "    (set! *self* (w-up *self*))"
-      , "    (notify-room \"\" (cat *name* \" arrives.\") *self*)"
-      , "    (look))"
+      , "  (define (exit-room p)"
+      , "    (let ((new (w-up p)))"
+      , "      (notify-room \"\" (cat (name p) \" leaves.\") p)"
+      , "      (notify-room \"\" (cat (name p) \" arrives.\") new)"
+      , "      (looks new)))"
 
-      , "  (define (look)"
-      , "    (notify (join (append (list (name (location *self*))"
-      , "                                (desc (location *self*)))"
+      , "  (define (looks p)"
+      , "    (notify (join (append (list (name (location p))"
+      , "                                (desc (location p)))"
       , "                          (map (lambda (i) (cat (name i) \" is here.\"))"
-      , "                               (filter (lambda (t) (not (= t *self*)))"
-      , "                                       (contents (location *self*)))))"
+      , "                               (filter (lambda (t) (not (= t p)))"
+      , "                                       (contents (location p)))))"
       , "                  \"\n\")"
-      , "            *self*))"
+      , "            p))"
 
 
       , "  (define (whoami)"
@@ -127,37 +127,43 @@ objlevel = M.insert (-2) (M.fromList [], 0) f0
       ]
 
 
-invoke :: String -> [Sval] -> World -> IO (Either String (Sval,World))
-invoke f sv w = let (o,cs) = bindAttrs w
-  in case envLookup (pack f) (-2) (bindings o) of
+invoke :: String -> [Sval] -> World -> IO (Either String (Sval, World))
+invoke f sv w = do
+  let frame = frameId $ focus w
+  lu <- envLookup (pack f) (Just frame)
+  case lu of
        Left _ -> return . Left $ "I don't know what " ++ f ++ " means."
        Right fn -> do
-         res <- run (p_apply fn sv (-2)) (bindings o)
-         return $ case res of
-           (Right s,env) -> Right (s, applyAttrs env (o,cs))
-           (Left err,_)  -> Left err
+         bindAttrs w
+         res <- p_apply fn sv frame
+         case res of
+           Right s -> let w' = case s of { Sworld z -> z; _ -> w }
+                      in applyAttrs w' >>= return . Right . (s,)
+           Left err -> return $ Left err
 
-evalWisp :: String -> World -> IO (Either String (Sval, World))
-evalWisp s w = let (o,cs) = bindAttrs w in do
-  res <- run (runWisp s $ -2) (bindings o)
-  return $ case res of
-    (Right v, env) -> Right (v, applyAttrs env (o,cs))
-    (Left err, _) -> Left err
+evalOn :: String -> World -> IO (Either String (Sval, World))
+evalOn s w = do
+  bindAttrs w
+  let f = frameId $ focus w
+  res <- eval s f
+  case res of
+    Right v -> let w' = case v of { Sworld z -> z; _ -> w }
+               in applyAttrs w' >>= return . Right . (v,)
+    Left err -> return $ Left err
 
-bindAttrs :: World -> World
-bindAttrs (o,cs) = let bs = M.fromList [ (sym_name, Sstring $ name o)
-                                       , (sym_desc, Sstring $ description o)
-                                       , (sym_self, Sworld (o,cs))
-                                       ]
-                       (tl,_) = bindings o M.! 0
-  in (o{bindings = M.insert 0 ((bs `M.union` tl),-1) (bindings o)},cs)
+bindAttrs :: World -> IO ()
+bindAttrs w@(o@(Obj{frameId = f}),_) = do
+  bind f sym_name $ Sstring (name o)
+  bind f sym_desc $ Sstring (description o)
+  bind f sym_self $ Sworld w
 
-applyAttrs :: Env -> World -> World
-applyAttrs b w = apName . apDesc $ apWrld
-  where (tl,_) = b M.! 0
-        apWrld = case M.lookup sym_self tl of { Just (Sworld (f,cs)) -> (f{bindings = b},cs) ; _ -> w }
-        apName w'@(f,cs) = case M.lookup sym_name tl of { Just (Sstring n) -> (f{name = n},cs); _ -> w' }
-        apDesc w'@(f,cs) = case M.lookup sym_desc tl of { Just (Sstring d) -> (f{description = d},cs); _ -> w' }
+applyAttrs :: World -> IO World
+applyAttrs w = do
+  (f,_) <- getFrame (frameId $ focus w)
+  return . apName f $ apDesc f w
+  where
+    apName fm w'@(f,cs) = case M.lookup sym_name fm of { Just (Sstring n) -> (f{name = n},cs); _ -> w' }
+    apDesc fm w'@(f,cs) = case M.lookup sym_desc fm of { Just (Sstring d) -> (f{description = d},cs); _ -> w' }
 
 sym_self :: ByteString
 sym_self = pack "*self*"
@@ -166,76 +172,99 @@ sym_desc = pack "*desc*"
 sym_name :: ByteString
 sym_name = pack "*name*"
 
+wisp_owner_p :: Sval
+wisp_owner_p = Sprim $ \vs _ -> return $ case vs of
+  [Sworld w1, Sworld w2] -> Right . Sbool $ (objId $ focus w1) `S.member` (owners $ focus w2)
+  _ -> Left $ "bad arguments: " ++ show vs
+
 wisp_w_up :: Sval
-wisp_w_up = Sprim $ \vs _ e -> return $ case vs of
-  [Sworld w] -> (Sworld `fmap` exit w, e)
-  l -> (Left $ "bad arguments: " ++ show l, e)
+wisp_w_up = Sprim $ \vs _ -> return $ case vs of
+  [Sworld w] -> Sworld `fmap` exit w
+  l -> Left $ "bad arguments: " ++ show l
 
 wisp_w_loc :: Sval
-wisp_w_loc = Sprim $ \vs _ e -> return $ case vs of
-  [Sworld w] -> (Sworld `fmap` zUp w, e)
-  l -> (Left $ "bad arguments: " ++ show l, e)
+wisp_w_loc = Sprim $ \vs _ -> return $ case vs of
+  [Sworld w] -> Sworld `fmap` zUp w
+  l -> Left $ "bad arguments: " ++ show l
 
 wisp_w_dn :: Sval
-wisp_w_dn = Sprim $ \vs _ e -> return $ case vs of
-  [Sworld w, Sstring n] -> (Sworld `fmap` enter (matchName n) w, e)
-  l -> (Left $ "bad arguments: " ++ show l, e)
+wisp_w_dn = Sprim $ \vs _ -> return $ case vs of
+  [Sworld w, Sstring n] -> Sworld `fmap` enter (matchName n) w
+  l -> Left $ "bad arguments: " ++ show l
 
 wisp_w_contents :: Sval
-wisp_w_contents = Sprim $ \vs _ e -> return $ case vs of
-  [Sworld w] -> (Right . Slist . map Sworld . zDn $ w, e)
-  l -> (Left $ "bad arguments: " ++ show l, e)
+wisp_w_contents = Sprim $ \vs _ -> return $ case vs of
+  [Sworld w] -> Right . Slist . map Sworld . zDn $ w
+  l -> Left $ "bad arguments: " ++ show l
 
 wisp_w_name :: Sval
-wisp_w_name = Sprim $ \vs _ e -> return $ case vs of
-  [Sworld (f,_)] -> (Right . Sstring . name $ f, e)
-  l -> (Left $ "bad arguments: " ++ show l, e)
+wisp_w_name = Sprim $ \vs _ -> return $ case vs of
+  [Sworld (f,_)] -> Right . Sstring . name $ f
+  l -> Left $ "bad arguments: " ++ show l
 
 wisp_w_desc :: Sval
-wisp_w_desc = Sprim $ \vs _ e -> return $ case vs of
-  [Sworld (f,_)] -> (Right . Sstring . description $ f, e)
-  l -> (Left $ "bad arguments: " ++ show l, e)
+wisp_w_desc = Sprim $ \vs _ -> return $ case vs of
+  [Sworld (f,_)] -> Right . Sstring . description $ f
+  l -> Left $ "bad arguments: " ++ show l
 
 wisp_notify :: Sval
-wisp_notify = Sprim $ \vs _ e -> case vs of
+wisp_notify = Sprim $ \vs _ -> case vs of
   [Sstring s, Sworld w] -> do rw <- notify s w
-                              return (Right . Sworld $ rw,e)
-  l -> return (Left $ "bad arguments: " ++ show l, e)
+                              return . Right . Sworld $ rw
+  l -> return . Left $ "bad arguments: " ++ show l
 
 wisp_notify_loc :: Sval
-wisp_notify_loc = Sprim $ \vs _ e -> case vs of
+wisp_notify_loc = Sprim $ \vs _ -> case vs of
   [Sstring s, Sstring o, Sworld w] -> do rw <- notify s w >> notifyExcept o w
-                                         return (Right . Sworld $ rw ,e)
-  l -> return (Left $ "bad arguments: " ++ show l, e)
+                                         return . Right . Sworld $ rw
+  l -> return . Left $ "bad arguments: " ++ show l
 
 wisp_exits :: Sval
-wisp_exits = Sprim $ \vs _ e -> case vs of
-  [Sworld (o,_)] -> return (Right . Slist . map Sstring . M.keys $ exits o, e)
-  l -> return (Left $ "bad arguments: " ++ show l, e)
+wisp_exits = Sprim $ \vs _ -> case vs of
+  [Sworld (o,_)] -> return $ Right . Slist . map Sstring . M.keys $ exits o
+  l -> return $ Left $ "bad arguments: " ++ show l
 
 wisp_go :: Sval
-wisp_go = Sprim $ \vs _ e -> case vs of
-  [Sstring dir, Sworld w] -> return (Sworld `fmap` go dir w, e)
-  l -> return (Left $ "bad arguments: " ++ show l, e)
+wisp_go = Sprim $ \vs _ -> return $ case vs of
+  [Sstring dir, Sworld w] -> Sworld `fmap` go dir w
+  _ -> Left $ "bad arguments: " ++ show vs
 
-wisp_find :: Sval
-wisp_find = Sprim $ \vs f e -> 
-  let tl = fst $ e M.! 0
-      self = M.lookup sym_self tl
-  in case self of
-    Just (Sworld w) -> case vs of
-      [Sstring s] -> return (Sworld `fmap` find (matchName s) Global w, e)
-      [pr@(Sfunc _ _ _)] -> return (Sworld `fmap` ioFind, e)
-        -- kind of gross & weird but we actually _want_ users to be able to
-        -- perform arbitrary side effects here.
-        where ioFind = find (\o -> wb . fst . unsafePerformIO $ run (p_apply pr [Sworld (o,[])] f) e) Global w
-              wb (Right (Sbool False)) = False
-              wb (Left _) = False
-              wb _ = True
-      [a] -> return (Left $ "Bad argument type: " ++ show a, e)
-      as -> return (Left $ "Wrong number of arguments: " ++ show (length as) ++ " for 1",e)
-    Just v -> return (Left $ "Bad value for *self*: " ++ show v,e)
-    Nothing -> return (Left "Missing value for *self*",e)
+wisp_neighbour :: Sval
+wisp_neighbour = Sprim $ \vs i -> do
+  self <- eval "*self*" i
+  case self of
+    Right (Sworld s) -> return $ case vs of
+      [Sstring n] -> Sworld `fmap` find (matchName n) Location s
+      _ -> Left $ "bad arguments: " ++ show vs
+    Left err -> return $ Left err
+    _ -> return . Left $ "bad type: " ++ show self
+
+-- FIXME: DON'T EVAL STRING LITERALS. PRECOMPILE THAT SHIT.
+wisp_add_owner :: Sval
+wisp_add_owner = Sprim $ \vs i -> case vs of
+  [Sworld (f,c), Sworld t@(o,_)] -> do
+    v <- eval "*self*" i
+    case v of
+      Right (Sworld (vf,_)) -> if vf `owns` f then do
+                                 notify ("You now own " ++ name f ++ ".") t
+                                 return . return $ Sworld (f{owners = S.insert (objId o) (owners f)},c)
+                               else return $ Left "You must own an object to grant ownership of that object."
+      Right v' -> return . Left $ "bad type: " ++ show v'
+      Left err -> return $ Left err
+  _ -> return . Left $ "bad arguments: " ++ show vs
+
+wisp_del_owner :: Sval
+wisp_del_owner = Sprim $ \vs i -> case vs of
+  [Sworld (f,c), Sworld t@(o,_)] -> do
+    v <- eval "*self*" i
+    case v of
+      Right (Sworld (vf,_)) -> if vf `owns` f then do
+                                 notify ("You no longer own " ++ name f ++ ".") t
+                                 return . return $ Sworld (f{owners = S.delete (objId o) (owners f)},c)
+                               else return $ Left "You must own an object to revoke ownership of that object."
+      Right v' -> return . Left $ "bad type: " ++ show v'
+      Left err -> return $ Left err
+  _ -> return . Left $ "bad arguments: " ++ show vs
 
 
 {- haskell-level notification primitives -}

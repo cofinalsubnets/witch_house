@@ -16,6 +16,7 @@ module WitchHouse.World.Core
 , zIns
 , focus
 , context
+, owns
 ) where
 
 import Data.List hiding (find, take, drop)
@@ -23,10 +24,14 @@ import qualified Data.List as List (find)
 import Prelude hiding (take, drop)
 import Control.Monad (liftM)
 import qualified Data.Map as M
+import qualified Data.Set as S (member)
 
 import WitchHouse.Types
 
 {- CONSTRUCTORS & HIGH-LEVEL TRANSFORMS -}
+
+owns :: Obj -> Obj -> Bool
+o1 `owns` o2 = objId o1 `S.member` owners o2
 
 move :: (Obj -> Bool) -> Scope -> WT
 move _ _ (_,[]) = Left "You can't move this object."

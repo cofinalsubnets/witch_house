@@ -7,24 +7,25 @@ module WitchHouse.Types
 , WT
 , Scope(..)
 , Sval(..)
-, Expr(..)
 , Env
 , Frame
 ) where
 
-import Data.Unique (Unique)
+import Data.Unique
 import Data.Map (Map)
 import System.IO (Handle)
 import Data.Function (on)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (unpack)
+import Data.HashTable.IO (BasicHashTable)
+import Data.Set (Set)
 
 -- command line options
 data Options = Options { portNo       :: Int
                        , dbPath       :: FilePath
                        , persistent   :: Bool
                        , autosave     :: Int
-                       , initialState :: World
+                       , initialState :: ()
                        , verbosity    :: Verbosity
                        , logHandle    :: Handle
                        }
@@ -40,8 +41,9 @@ data Obj = Obj { name     :: String
                , contents :: [Obj]
                , handle   :: Maybe Handle
                , password :: Maybe String
+               , owners   :: Set Unique
                , start    :: Bool
-               , bindings :: Env
+               , frameId  :: Int
                }
 
 instance Eq Obj where
@@ -60,12 +62,10 @@ data Scope = Self
 
 -- TYPES FOR WISP
 
-type Frame = (Map ByteString Sval, Int)
-type Env = Map Int Frame
+type Frame = (Map ByteString Sval, Maybe Int)
+type Env = BasicHashTable Int Frame
 
-data Expr m a = Monad m => Expr { run :: Env -> IO (m a, Env) }
-
-type Htrans = [Sval] -> Int -> Env -> IO (Either String Sval, Env)
+type Htrans = [Sval] -> Int -> IO (Either String Sval)
 -- type for wisp values
 data Sval = Snum    Int
           | Sstring String
@@ -87,7 +87,7 @@ instance Show Sval where
   show (Sfunc as b f) = concat ["(lambda ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
   show (Smacro as b f) = concat ["(macro ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
   show (Sprim _) = "#<prim fn>"
-  show (Sworld _) = "#<world>"
+  show (Sworld (f,_)) = "#<obj:" ++ show (hashUnique . objId $ f) ++ ">"
   show (Sform _) = "#<form>"
 
 instance Eq Sval where
@@ -100,10 +100,4 @@ instance Eq Sval where
   (Sfunc a b c) == (Sfunc d e f) = (a,b,c) == (d,e,f)
   (Smacro a b c) == (Smacro d e f) = (a,b,c) == (d,e,f)
   _ == _ = False
-
-instance Monad (Expr (Either String)) where
-  return v = Expr $ \e -> return (return v,e)
-  a >>= b = Expr $ \e0 -> do (v1,e1) <- run a e0 
-                             case v1 of Left err -> return (Left err,e1)
-                                        Right v -> run (b v) e1
 
