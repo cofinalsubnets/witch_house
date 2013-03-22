@@ -19,6 +19,10 @@ module WitchHouse.World.Core
 , owns
 , make
 , mkObj
+, name
+, description
+, password
+, handle
 ) where
 
 import Data.List hiding (find, take, drop)
@@ -27,7 +31,10 @@ import Prelude hiding (take, drop)
 import Control.Monad (liftM, (>=>))
 import qualified Data.Map as M
 import qualified Data.Set as S (member, fromList)
-import WitchHouse.Wisp (toplevel, pushFrame)
+import WitchHouse.Wisp (toplevel, pushFrame, envLookup, bind)
+import System.IO
+import System.IO.Unsafe
+import Data.ByteString.Char8 (pack)
 
 import WitchHouse.Types
 
@@ -35,19 +42,18 @@ import WitchHouse.Types
 
 -- | Insert a new obj into the world with the given name.
 make :: String -> World -> IO World
-make n w = mkObj >>= \o -> return . zUp' $ zIns o {name = n, owners = S.fromList [objId $ focus w]} w
+make n w = do
+  o <- mkObj
+  bind (objId o) (pack "*name*") (Sstring n)
+  return $ zIns o {owners = S.fromList [objId $ focus w]} $ zUp' w
 
 -- | Create a new obj. In IO because we need to grab a new Unique identifier.
 mkObj :: IO Obj
 mkObj = do
   n <- pushFrame (M.fromList [], Just toplevel)
-  return Obj { name        = ""
-             , description = ""
-             , objId       = n
+  return Obj { objId       = n
              , exits       = M.fromList []
              , contents    = []
-             , handle      = Nothing
-             , password    = Nothing
              , owners      = S.fromList []
              , start       = False
              }
@@ -159,6 +165,29 @@ find' :: (Obj -> Bool) -> Scope -> World -> World
 find' p s w = case find p s w of Right w' -> w'
                                  Left _ -> error "find': search failed"
 
+name :: Obj -> String
+name o = unsafePerformIO $ do
+  n <- envLookup (pack "*name*") (Just $ objId o)
+  return $ case n of Right (Sstring s) -> s
+                     _ -> ""
+
+description :: Obj -> String
+description o = unsafePerformIO $ do
+  n <- envLookup (pack "*desc*") (Just $ objId o)
+  return $ case n of Right (Sstring s) -> s
+                     _ -> ""
+
+password :: Obj -> Maybe String
+password o = unsafePerformIO $ do
+  n <- envLookup (pack "*password*") (Just $ objId o)
+  return $ case n of Right (Sstring s) -> Just s
+                     _ -> Nothing
+
+handle :: Obj -> Maybe Handle
+handle o = unsafePerformIO $ do
+  n <- envLookup (pack "*handle*") (Just $ objId o)
+  return $ case n of Right (Shandle h) -> Just h
+                     _ -> Nothing
 
 {- OBJECT PREDICATES -}
 

@@ -33,13 +33,9 @@ data Verbosity = V0 | V1 | V2 deriving (Show,Eq,Ord)
 
 -- | A thing in the world.
 -- A world is basically a tree of Objs, which we traverse using a zipper.
-data Obj = Obj { name     :: String
-               , description :: String
-               , objId    :: Int
+data Obj = Obj { objId    :: Int
                , exits    :: Map String Int
                , contents :: [Obj]
-               , handle   :: Maybe Handle
-               , password :: Maybe String
                , owners   :: Set Int
                , start    :: Bool
                }
@@ -74,6 +70,7 @@ data Sval = Snum    Int
           | Smacro  { params :: [ByteString], body :: [Sval], frameNo :: Int }
           | Sform   { transform :: Htrans }
           | Sprim   { transform :: Htrans }
+          | Shandle Handle
           | Sworld  World
 
 instance Show Sval where
@@ -86,6 +83,7 @@ instance Show Sval where
   show (Smacro as b f) = concat ["(macro ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
   show (Sprim _) = "#<prim fn>"
   show (Sworld (f,_)) = "#<obj:" ++ show (objId $ f) ++ ">"
+  show (Shandle h) = show h
   show (Sform _) = "#<form>"
 
 instance Eq Sval where
@@ -95,6 +93,7 @@ instance Eq Sval where
   (Ssym a)    == (Ssym b)    = a == b
   (Slist a)   == (Slist b)   = a == b
   (Sworld a)  == (Sworld b)  = (objId.fst $ a) == (objId.fst $ b)
+  (Shandle a) == (Shandle b) = a == b
   (Sfunc a b c) == (Sfunc d e f) = (a,b,c) == (d,e,f)
   (Smacro a b c) == (Smacro d e f) = (a,b,c) == (d,e,f)
   _ == _ = False

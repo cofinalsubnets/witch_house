@@ -9,6 +9,7 @@ module WitchHouse.Wisp
 , getFrame
 , pushFrame
 , dropFrame
+, envLookup
 ) where
 
 import WitchHouse.Types

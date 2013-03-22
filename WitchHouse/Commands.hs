@@ -11,6 +11,7 @@ import System.IO
 import Control.Monad ((>=>))
 import Prelude hiding (take, drop)
 import qualified Data.Set as S
+import Data.ByteString.Char8 (pack)
 
 import Text.ParserCombinators.Parsec
 import Control.Applicative hiding ((<|>), many, optional)
@@ -73,7 +74,8 @@ send :: String -> Command
 send actn w = do
   res <- invoke actn [] w
   case res of Left err -> notify err w
-              Right (_,w') -> return w'
+              Right (Sworld w') -> return w'
+              Right _ -> return w
 
 bindings :: Command
 bindings w = do
@@ -86,14 +88,15 @@ quit (f,c) = case handle f of
   Nothing -> return (f,c)
   Just h -> do hPutStrLn h "Bye!"
                hClose h
-               return (f{handle = Nothing},c)
+               unbind (objId f) (pack "*handle*")
+               return (f,c)
 
 goes :: String -> Command
 goes dir w = do
   res <- invoke "go" [Sstring dir] w
   case res of
     Left err -> notify err w
-    Right (_,w') -> return w'
+    Right v -> notify (show v) w
 
 enters :: String -> Command
 enters n w = case enter (matchName n) w of
@@ -139,7 +142,7 @@ evals :: String -> Command
 evals s w = do
   res <- s `evalOn` w
   case res of Left err -> notify err w
-              Right (v,w') -> notify (show v) w >> return w'
+              Right v -> notify (show v) w >> return w
 
 evalIn :: String -> String -> Command
 evalIn l t w = case find (matchName t) Location w of

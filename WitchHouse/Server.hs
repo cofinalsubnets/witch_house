@@ -15,6 +15,8 @@ import WitchHouse.World
 import WitchHouse.Types
 import WitchHouse.Commands
 import WitchHouse.Version
+import WitchHouse.Wisp
+import Data.ByteString.Char8 (pack)
 --import WitchHouse.Persistence
 
 
@@ -87,7 +89,7 @@ connectMsg :: String
 connectMsg = "witch_house " ++ version
 
 welcomeMsg :: Obj -> World -> String
-welcomeMsg (Obj {name=n}) _ = "Welcome, " ++ n ++ "."
+welcomeMsg o _ = "Welcome, " ++ name o ++ "."
 
 -- | Handle a login request. The request will fail if someone is already
 -- logged in with the given name; otherwise, the client will be attached to
@@ -118,7 +120,7 @@ login h sem = do
 
     loginExisting (p,_) = do w <- readIORef world
                              let (p',c) = find' (p==) Global w
-                             writeIORef world (p'{handle = Just h},c)
+                             bind (objId p') (pack "*handle*") (Shandle h)
                              putMVar sem ()
                              hPutStrLn h (welcomeMsg p' (p',c)) >> hFlush h
                              return $ Just p'
@@ -149,5 +151,8 @@ mkLogger h fmt vl vm msg = when (vl >= vm) $ do
 mkPlayer :: String -> String -> Handle -> IO Obj
 mkPlayer n pw h = do
   o <- mkObj
-  return o{name = n, password = Just pw, handle = Just h}
+  bind (objId o) (pack "*name*") (Sstring n)
+  bind (objId o) (pack "*password*") (Sstring pw)
+  bind (objId o) (pack "*handle*") (Shandle h)
+  return o
 

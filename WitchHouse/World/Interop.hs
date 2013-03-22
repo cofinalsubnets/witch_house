@@ -9,10 +9,10 @@ module WitchHouse.World.Interop
 
 
 import WitchHouse.Types
-import WitchHouse.World.Core
 import WitchHouse.World.Global
+import WitchHouse.World.Core
 import WitchHouse.Wisp
-import WitchHouse.Wisp.Core (envLookup, p_apply, p_eval)
+import WitchHouse.Wisp.Core (p_apply, p_eval)
 import Data.List (delete)
 import Data.IORef
 
@@ -21,7 +21,6 @@ import qualified Data.Map as M
 import System.IO (hPutStrLn, hFlush)
 
 import Data.ByteString.Char8 (pack)
-import Data.ByteString (ByteString)
 
 import qualified Data.Set as S (member, insert, delete)
 
@@ -134,47 +133,15 @@ bootstrap = do
       ]
 
 
-invoke :: String -> [Sval] -> World -> IO (Either String (Sval, World))
-invoke f sv w = do
-  let frame = objId $ focus w
-  lu <- envLookup (pack f) (Just frame)
+invoke :: String -> [Sval] -> World -> IO (Either String Sval)
+invoke f sv (Obj{objId = i},_) = do
+  lu <- envLookup (pack f) (Just i)
   case lu of
     Left _ -> return . Left $ "I don't know what " ++ f ++ " means."
-    Right fn -> do
-      bindAttrs w
-      res <- p_apply p_eval [Slist (fn:sv)] frame
-      case res of
-        Right s -> let w' = case s of { Sworld z -> z; _ -> w }
-                   in applyAttrs w' >>= return . Right . (s,)
-        Left err -> return $ Left err
+    Right fn -> p_apply p_eval [Slist (fn:sv)] i
 
-evalOn :: String -> World -> IO (Either String (Sval, World))
-evalOn s w = do
-  bindAttrs w
-  let f = objId $ focus w
-  res <- eval s f
-  case res of
-    Right v -> let w' = case v of { Sworld z -> z; _ -> w }
-               in applyAttrs w' >>= return . Right . (v,)
-    Left err -> return $ Left err
-
-bindAttrs :: World -> IO ()
-bindAttrs (o@(Obj{objId = f}),_) = do
-  bind f sym_name $ Sstring (name o)
-  bind f sym_desc $ Sstring (description o)
-
-applyAttrs :: World -> IO World
-applyAttrs w = do
-  (f,_) <- getFrame (objId $ focus w)
-  return . apName f $ apDesc f w
-  where
-    apName fm w'@(f,cs) = case M.lookup sym_name fm of { Just (Sstring n) -> (f{name = n},cs); _ -> w' }
-    apDesc fm w'@(f,cs) = case M.lookup sym_desc fm of { Just (Sstring d) -> (f{description = d},cs); _ -> w' }
-
-sym_desc :: ByteString
-sym_desc = pack "*desc*"
-sym_name :: ByteString
-sym_name = pack "*name*"
+evalOn :: String -> World -> IO (Either String Sval)
+evalOn s (Obj{objId = i},_) = eval s i
 
 wisp_owner_p :: Sval
 wisp_owner_p = Sprim $ \vs _ -> return $ case vs of
@@ -199,11 +166,6 @@ wisp_w_dn = Sprim $ \vs _ -> return $ case vs of
 wisp_w_contents :: Sval
 wisp_w_contents = Sprim $ \vs _ -> return $ case vs of
   [Sworld w] -> Right . Slist . map Sworld . zDn $ w
-  l -> Left $ "bad arguments: " ++ show l
-
-wisp_w_name :: Sval
-wisp_w_name = Sprim $ \vs _ -> return $ case vs of
-  [Sworld (f,_)] -> Right . Sstring . name $ f
   l -> Left $ "bad arguments: " ++ show l
 
 wisp_w_desc :: Sval
@@ -262,6 +224,12 @@ wisp_add_owner = Sprim $ \vs i -> case vs of
 
 wisp_self :: Sval
 wisp_self = Sprim . const $ fmap (Right . Sworld) . getSelf
+
+wisp_w_name :: Sval
+wisp_w_name = Sprim $ \vs _ -> return $ case vs of
+  [Sworld (f,_)] -> Right . Sstring . name $ f
+  l -> Left $ "bad arguments: " ++ show l
+
 
 wisp_del_owner :: Sval
 wisp_del_owner = Sprim $ \vs i -> case vs of
