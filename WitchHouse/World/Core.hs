@@ -24,11 +24,10 @@ module WitchHouse.World.Core
 import Data.List hiding (find, take, drop)
 import qualified Data.List as List (find)
 import Prelude hiding (take, drop)
-import Control.Monad (liftM)
+import Control.Monad (liftM, (>=>))
 import qualified Data.Map as M
 import qualified Data.Set as S (member, fromList)
 import WitchHouse.Wisp (toplevel, pushFrame)
-import Data.Unique (newUnique)
 
 import WitchHouse.Types
 
@@ -41,18 +40,16 @@ make n w = mkObj >>= \o -> return . zUp' $ zIns o {name = n, owners = S.fromList
 -- | Create a new obj. In IO because we need to grab a new Unique identifier.
 mkObj :: IO Obj
 mkObj = do
-  i <- newUnique
   n <- pushFrame (M.fromList [], Just toplevel)
   return Obj { name        = ""
              , description = ""
-             , objId       = i
+             , objId       = n
              , exits       = M.fromList []
              , contents    = []
              , handle      = Nothing
              , password    = Nothing
              , owners      = S.fromList []
              , start       = False
-             , frameId     = n
              }
 
 owns :: Obj -> Obj -> Bool
@@ -66,10 +63,10 @@ take :: (Obj -> Bool) -> WT
 take p w = find p Location w >>= enter (==focus w)
 
 drop :: (Obj -> Bool) -> WT
-drop p w = find p Self w >>= exit
+drop p = find p Self >=> exit
 
 enter :: (Obj -> Bool) -> WT
-enter p w = move p Self w -- it's counterintuitive that the scope here should be `Self'
+enter p = move p Self -- it's counterintuitive that the scope here should be `Self'
 
 go :: String -> WT
 go dir w = do

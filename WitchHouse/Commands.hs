@@ -77,7 +77,7 @@ send actn w = do
 
 bindings :: Command
 bindings w = do
-  (m,_) <- getFrame (frameId $ focus w)
+  (m,_) <- getFrame (objId $ focus w)
   notify (show m) w
 
 
@@ -99,7 +99,8 @@ enters :: String -> Command
 enters n w = case enter (matchName n) w of
   Left err -> notify err w
   Right w' -> do (++ " enters "++(name . focus . zUp' $ w')++".") . name . focus >>= notifyExcept $ w
-                 send "look" w' >>= ((++" enters.") . name . focus >>= notifyExcept)
+                 invoke "looks" [Sworld w'] w'
+                 ((++" enters.") . name . focus >>= notifyExcept) w'
 
 makes :: String -> Command
 makes n = make n >=> notify ("You make "++n++".")
@@ -111,15 +112,15 @@ recycle n w = case find (matchName n) Self w of
                 Just _ -> notify "You can't recycle an active player!" w >> notify ((name . focus $ w) ++ " tried to recycle you!") w'
                 Nothing -> case contents . focus $ w' of
                              [] -> do notify ((name $ focus w') ++ " has been recycled.") w
-                                      dropFrame . frameId $ focus w'
+                                      dropFrame . objId $ focus w'
                                       return $ zDel w'
                              _ -> notify "You can't recycle a non-empty object." w
 
 reset :: Command
-reset (o@(Obj{frameId = f}),cs) = do
+reset (o@(Obj{objId = f}),cs) = do
   dropFrame f
   f' <- pushFrame (M.fromList [], Just toplevel)
-  return (o{frameId = f'}, cs) >>= notify "Bindings reset."
+  return (o{objId = f'}, cs) >>= notify "Bindings reset."
 
 links :: String -> String -> Command
 links dir dest = notifyResult (\w -> zUp w >>= link dir (matchName dest) >>= find (focus w ==) Self) $
@@ -158,8 +159,8 @@ drops n w = case drop (matchName n) w of
   Left err -> notify err w
   Right w' -> do notify ("You drop " ++ (name $ focus w') ++ ".") w               
                  notifyExcept ((name $ focus w) ++ " drops " ++ (name $ focus w')) w
+                 invoke "looks" [Sworld w'] w'
                  notify ((name $ focus w) ++ " drops you!") w'
-                 send "look" w'
 
 
 command :: GenParser Char st Command

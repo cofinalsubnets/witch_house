@@ -11,7 +11,6 @@ module WitchHouse.Types
 , Frame
 ) where
 
-import Data.Unique
 import Data.Map (Map)
 import System.IO (Handle)
 import Data.Function (on)
@@ -36,14 +35,13 @@ data Verbosity = V0 | V1 | V2 deriving (Show,Eq,Ord)
 -- A world is basically a tree of Objs, which we traverse using a zipper.
 data Obj = Obj { name     :: String
                , description :: String
-               , objId    :: Unique
-               , exits    :: Map String Unique
+               , objId    :: Int
+               , exits    :: Map String Int
                , contents :: [Obj]
                , handle   :: Maybe Handle
                , password :: Maybe String
-               , owners   :: Set Unique
+               , owners   :: Set Int
                , start    :: Bool
-               , frameId  :: Int
                }
 
 instance Eq Obj where
@@ -87,7 +85,7 @@ instance Show Sval where
   show (Sfunc as b f) = concat ["(lambda ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
   show (Smacro as b f) = concat ["(macro ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
   show (Sprim _) = "#<prim fn>"
-  show (Sworld (f,_)) = "#<obj:" ++ show (hashUnique . objId $ f) ++ ">"
+  show (Sworld (f,_)) = "#<obj:" ++ show (objId $ f) ++ ">"
   show (Sform _) = "#<form>"
 
 instance Eq Sval where

@@ -14,7 +14,6 @@ import WitchHouse.World.Global
 import WitchHouse.Wisp
 import WitchHouse.Wisp.Core (envLookup, p_apply, p_eval)
 import Data.List (delete)
-import Control.Monad (liftM)
 import Data.IORef
 
 import qualified Data.Map as M
@@ -100,15 +99,15 @@ bootstrap = do
       , "  (define exit (macro ()"
       , "    `(exit-room (self))))"
 
-      , "  (define (inventory)"
-      , "    ((lambda (i)"
-      , "       (if (null? i)"
-      , "           (notify \"You aren't carrying anything.\" *self*)"
-      , "           (notify (join (cons \"You are carrying:\""
-      , "                               (map name i))"
+      , "  (define inventory (macro ()"
+      , "    `(let ((me (self)))"
+      , "       (let ((cs (contents me)))"
+      , "         (if (null? cs)"
+      , "             (notify \"You aren't carrying anything.\" me)"
+      , "             (notify (join (cons \"You are carrying:\""
+      , "                                 (map name cs))"
       , "                         \"\n\")"
-      , "                   *self*)))"
-      , "     (contents *self*)))"
+      , "                   me))))))"
 
       , "  (define exits (macro ()"
       , "    `(let ((me (self))"
@@ -137,7 +136,7 @@ bootstrap = do
 
 invoke :: String -> [Sval] -> World -> IO (Either String (Sval, World))
 invoke f sv w = do
-  let frame = frameId $ focus w
+  let frame = objId $ focus w
   lu <- envLookup (pack f) (Just frame)
   case lu of
     Left _ -> return . Left $ "I don't know what " ++ f ++ " means."
@@ -152,7 +151,7 @@ invoke f sv w = do
 evalOn :: String -> World -> IO (Either String (Sval, World))
 evalOn s w = do
   bindAttrs w
-  let f = frameId $ focus w
+  let f = objId $ focus w
   res <- eval s f
   case res of
     Right v -> let w' = case v of { Sworld z -> z; _ -> w }
@@ -160,13 +159,13 @@ evalOn s w = do
     Left err -> return $ Left err
 
 bindAttrs :: World -> IO ()
-bindAttrs (o@(Obj{frameId = f}),_) = do
+bindAttrs (o@(Obj{objId = f}),_) = do
   bind f sym_name $ Sstring (name o)
   bind f sym_desc $ Sstring (description o)
 
 applyAttrs :: World -> IO World
 applyAttrs w = do
-  (f,_) <- getFrame (frameId $ focus w)
+  (f,_) <- getFrame (objId $ focus w)
   return . apName f $ apDesc f w
   where
     apName fm w'@(f,cs) = case M.lookup sym_name fm of { Just (Sstring n) -> (f{name = n},cs); _ -> w' }
@@ -234,46 +233,43 @@ wisp_go = Sprim $ \vs _ -> return $ case vs of
   [Sstring dir, Sworld w] -> Sworld `fmap` go dir w
   _ -> Left $ "bad arguments: " ++ show vs
 
+getSelf :: Int -> IO World
+getSelf i = do
+  w <- readIORef world
+  case find ((i==) . objId) Global w of
+    Right w' -> return w'
+    Left _ -> do (_,n) <- getFrame i
+                 case n of
+                   Nothing -> error "can't find self!"
+                   Just i' -> getSelf i'
+                                                     
+
 wisp_neighbour :: Sval
 wisp_neighbour = Sprim $ \vs i -> do
-  self <- eval "(self)" i
-  case self of
-    Right (Sworld s) -> return $ case vs of
-      [Sstring n] -> Sworld `fmap` find (matchName n) Location s
-      _ -> Left $ "bad arguments: " ++ show vs
-    Left err -> return $ Left err
-    _ -> return . Left $ "bad type: " ++ show self
+  self <- getSelf i
+  return $ case vs of
+    [Sstring n] -> Sworld `fmap` find (matchName n) Location self
+    _ -> Left $ "bad arguments: " ++ show vs
 
--- FIXME: DON'T EVAL STRING LITERALS. PRECOMPILE THAT SHIT.
 wisp_add_owner :: Sval
 wisp_add_owner = Sprim $ \vs i -> case vs of
   [Sworld (f,c), Sworld t@(o,_)] -> do
-    v <- eval "(self)" i
-    case v of
-      Right (Sworld (vf,_)) -> if vf `owns` f then do
-                                 notify ("You now own " ++ name f ++ ".") t
-                                 return . return $ Sworld (f{owners = S.insert (objId o) (owners f)},c)
-                               else return $ Left "You must own an object to grant ownership of that object."
-      Right v' -> return . Left $ "bad type: " ++ show v'
-      Left err -> return $ Left err
+    (vf,_) <- getSelf i
+    if vf `owns` f then do notify ("You now own " ++ name f ++ ".") t
+                           return . return $ Sworld (f{owners = S.insert (objId o) (owners f)},c)
+    else return $ Left "You must own an object to grant ownership of that object."
   _ -> return . Left $ "bad arguments: " ++ show vs
 
 wisp_self :: Sval
-wisp_self = Sprim $ \_ i -> do
-  w <- liftM (find' ((==i) . frameId) Global) $ readIORef world
-  return . Right $ Sworld w
+wisp_self = Sprim . const $ fmap (Right . Sworld) . getSelf
 
 wisp_del_owner :: Sval
 wisp_del_owner = Sprim $ \vs i -> case vs of
   [Sworld (f,c), Sworld t@(o,_)] -> do
-    v <- eval "(self)" i
-    case v of
-      Right (Sworld (vf,_)) -> if vf `owns` f then do
-                                 notify ("You no longer own " ++ name f ++ ".") t
-                                 return . return $ Sworld (f{owners = S.delete (objId o) (owners f)},c)
-                               else return $ Left "You must own an object to revoke ownership of that object."
-      Right v' -> return . Left $ "bad type: " ++ show v'
-      Left err -> return $ Left err
+    (vf,_) <- getSelf i
+    if vf `owns` f then do notify ("You no longer own " ++ name f ++ ".") t
+                           return . return $ Sworld (f{owners = S.delete (objId o) (owners f)},c)
+    else return $ Left "You must own an object to revoke ownership of that object."
   _ -> return . Left $ "bad arguments: " ++ show vs
 
 
