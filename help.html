@@ -1,0 +1,13 @@
+---
+layout: default
+title: witch_house - faq
+---
+
+<div id="faq_box">
+  <ul id="faqs">
+    {% for help in site.categories.help %}
+    <li><a href="{{ help.url }}">{{ help.q }}</a></li>
+    {% endfor %}
+  </ul>
+</div>
+
