@@ -221,6 +221,15 @@ p_mk_ref = Sprim $ \vs _ -> case vs of
   [] -> randomIO >>= return . Right . Sref
   _ -> return $ len_fail 0 vs
 
+f_as :: Sval
+f_as = Sform $ \vs i -> case vs of
+  [k, x] -> do
+    k' <- _eval k i
+    case k' of Right (Sref i') -> _eval x i'
+               Right v -> return . Left $ "Bad type (expected ref): " ++ show v
+               err -> return err
+  _ -> return $ len_fail 2 vs
+
 f_if :: Sval
 f_if = Sform $ \vs f -> case vs of
   [cond, y, n] -> do
@@ -330,6 +339,7 @@ specialForms = M.fromList $
   , (pack "splice", f_splice)
   , (pack "macro", f_macro)
   , (pack "unset!", f_unset)
+  , (pack "as", f_as)
   ]
 
 {- helpers -}

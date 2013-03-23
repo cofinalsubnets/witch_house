@@ -62,66 +62,66 @@ persist mw i f l = do
 
 session :: Handle -> MVar World -> IO ()
 session h mw = do
-  li <- timeout 60000000 $ login h mw -- 1 min. timeout for login
-  case join li of
-    Nothing -> return ()
-    Just n  -> forever $ do
-      stop <- hIsClosed h
-      when stop exitSuccess
-      c <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
-      modifyMVar_ mw (return . (find' (n==) Global) >=> handleCommand c)
+  client <- login h mw -- 1 min. timeout for login
+  forever $ do
+    hIsClosed h >>= \stop -> when stop exitSuccess
+    c <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
+    modifyMVar_ mw (return . (find' (client ==) Global) >=> handleCommand c)
 
   where
     handleCommand c = case c of Nothing -> parseCommand "quit"
                                 Just "" -> return
                                 Just c' -> parseCommand c'
 
-
 connectMsg :: String
 connectMsg = "witch_house " ++ version
 
-welcomeMsg :: String
-welcomeMsg = "hai there"
+welcomeMsg :: String -> String
+welcomeMsg n = "Welcome, " ++ n ++ "."
 
 -- | Handle a login request. The request will fail if someone is already
 -- logged in with the given name; otherwise, the client will be attached to
 -- the object with the given name (one will be created if it doesn't exist).
-login :: Handle -> MVar World -> IO (Maybe Obj)
+login :: Handle -> MVar World -> IO Obj
 login h mw = do
-  -- login
-  hPutStrLn h connectMsg
-  hPutStr h "Name: " >> hFlush h
+  c <- timeout 60000000 $ do
+    hPutStrLn h connectMsg
+    hPutStr h "Name: " >> hFlush h
 
-  n <- hGetLine h
-  w <- readMVar mw
-  case find ((n==).name) Global w of
-    Right o -> case (password.focus) o of
-      Just pw -> do hPutStr h "Password: " >> hFlush h
-                    p <- hGetLine h
-                    if p == pw
-                      then loginExisting o
-                      else loginFailure "Incorrect password."
-      Nothing -> loginFailure "Not a player."
+    n <- hGetLine h
+    w <- readMVar mw
+    case find ((n==).name) Global w of
+      Right o -> case (password.focus) o of
+        Just pw -> do hPutStr h "Password: " >> hFlush h
+                      p <- hGetLine h
+                      if p == pw
+                        then loginExisting o
+                        else loginFailure "Incorrect password."
+        Nothing -> loginFailure "Not a player."
 
-    Left _ -> loginNew n
+      Left _ -> loginNew n
+
+  case c of Nothing -> exitSuccess
+            Just c' -> return c'
 
   where
 
-    loginFailure s = hPutStrLn h s >> hClose h >> return Nothing
+    loginFailure s = do hPutStrLn h s
+                        hClose h
+                        exitSuccess
 
     loginExisting (p,_) = do bind (objId p) (pack "*handle*") (Shandle h)
-                             hPutStrLn h welcomeMsg >> hFlush h
-                             return $ Just p
+                             hPutStrLn h (welcomeMsg $ name p) >> hFlush h
+                             return p
 
     loginNew s = do hPutStrLn h ("Creating new node for " ++ s ++ ".") >> hFlush h
                     hPutStr h "Password: " >> hFlush h
                     pw <- hGetLine h
 
-                    -- make a new obj
                     o <- mkPlayer s pw h
                     modifyMVar_ mw (return . zIns o . find' start Global)
-                    hPutStrLn h welcomeMsg >> hFlush h
-                    return $ Just o
+                    hPutStrLn h (welcomeMsg s) >> hFlush h
+                    return o
 
 type Logger = Verbosity -> String -> IO ()
 
