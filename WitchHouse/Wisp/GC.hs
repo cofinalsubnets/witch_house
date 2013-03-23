@@ -27,11 +27,11 @@ gc = do
 gcW :: World -> IO ()
 gcW w = do
   (g, v2i, i2v) <- envGraph
-  let tv = case i2v toplevel of { Just v -> v; Nothing -> error "gc: rilly messed up env!" }
-      getKey = (\(_,k,_) -> k) . v2i
-      rs = reachable g tv
+  let getKey = (\(_,k,_) -> k) . v2i
+      getVec i = case i2v i of { Just v -> v; Nothing -> error "gcW: messed up env!" }
+      rs = concatMap (reachable g) $ map getVec (toplevel:(objIds w))
       vs = map getKey $ vertices g
-      ks = map getKey rs ++ objIds w
+      ks = map getKey rs
   mapM_ (H.delete env) (vs \\ ks)
   where
     depth o = o:(contents o) ++ (concatMap depth $ contents o)
