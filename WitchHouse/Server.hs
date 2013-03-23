@@ -15,7 +15,7 @@ import WitchHouse.Commands
 import WitchHouse.Version
 import WitchHouse.Wisp
 import Data.ByteString.Char8 (pack)
---import WitchHouse.Persistence
+import WitchHouse.Persistence
 
 
 startServer :: Options -> IO ()
@@ -28,11 +28,9 @@ startServer opts = do
 
   forkIO $ garbageCollect mw
 
-{-
   when (persistent opts) $ do
-    _ <- forkIO $ persist tmw (autosave opts) (dbPath opts) logger
+    forkIO $ persist mw (autosave opts) (dbPath opts) logger
     return ()
-    -}
 
   forever $ do
     (h,hn,p) <- accept sock
@@ -43,7 +41,7 @@ startServer opts = do
     hSetNewlineMode h universalNewlineMode
 
     -- Start the user session.
-    forkFinally (session h mw) (\e -> logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p ++ " -- " ++ show e)
+    forkFinally (session h mw) (\_ -> logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p ++ " -- ")
 
 garbageCollect :: MVar World -> IO ()
 garbageCollect mw = forever $ do
@@ -52,17 +50,15 @@ garbageCollect mw = forever $ do
   gcW w
   putMVar mw w
 
-{-
-persist :: TMVar World -> Int -> FilePath -> Logger -> IO ()
-persist tmw i f l = do
+persist :: MVar World -> Int -> FilePath -> Logger -> IO ()
+persist mw i f l = do
   threadDelay $ 1000000 * i
   l V2 $ "Saving world state to "++f++" ..."
-  w <- atomically $ readTMVar tmw
+  w <- readMVar mw
   conn <- connect f
   saveWorld w conn
   disconnect conn
-  persist tmw i f l
-  -}
+  persist mw i f l
 
 session :: Handle -> MVar World -> IO ()
 session h mw = do

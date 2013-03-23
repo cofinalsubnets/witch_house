@@ -14,7 +14,7 @@ import Data.ByteString.Char8 (pack)
 import System.IO
 
 import WitchHouse.Types
---import WitchHouse.Persistence (connect, disconnect, loadWorld)
+import WitchHouse.Persistence (connect, disconnect, loadWorld)
 import WitchHouse.Wisp (repl, bind)
 import WitchHouse.World
 import WitchHouse.Version
@@ -34,7 +34,6 @@ options = [ Option "" ["cores"]
           , Option "p" ["port"]
             (ReqArg setPortNo "PORT")
               "local port to listen on (default is 10101)"
-              {-
           , Option "e" ["ephemeral"]
             (NoArg setEphemeral)
               "disable persistence"
@@ -47,7 +46,6 @@ options = [ Option "" ["cores"]
           , Option "l" ["load"]
             (ReqArg loadDB "FILE")
               "load initial state from file"
-              -}
           , Option "" ["version"]
             (NoArg (\_ -> putStrLn ("witch_house " ++ version) >> exitSuccess))
               "print version and exit"
@@ -64,7 +62,6 @@ options = [ Option "" ["cores"]
             (NoArg (\_ -> repl >> exitSuccess))
               "wisp REPL"
           ]
-          {-
 
 loadDB :: FilePath -> Options -> IO Options
 loadDB f opts = do
@@ -72,17 +69,14 @@ loadDB f opts = do
   w <- loadWorld c
   disconnect c
   return opts{initialState = w}
-  -}
 
 logTo :: FilePath -> Options -> IO Options
 logTo f opts = do
   h <- openFile f WriteMode
   return opts{logHandle = h}
 
-{-
 setDB :: FilePath -> Options -> IO Options
 setDB f opts = return opts{dbPath = f}
--}
 
 setVerbosity :: String -> Options -> IO Options
 setVerbosity v o = do
@@ -99,7 +93,6 @@ setCores n o = do
   setNumCapabilities n'
   return o
  
- {-
 setInterval :: String -> Options -> IO Options
 setInterval n opts = do
   s <- readArg n 
@@ -107,7 +100,6 @@ setInterval n opts = do
 
 setEphemeral :: Options -> IO Options
 setEphemeral opts = return opts{persistent = False}
--}
 
 setPortNo :: String -> Options -> IO Options
 setPortNo n opts = do

@@ -12,6 +12,7 @@ import Control.Monad ((>=>))
 import Prelude hiding (take, drop)
 import qualified Data.Set as S
 import Data.ByteString.Char8 (pack)
+import Data.List ((\\))
 
 import Text.ParserCombinators.Parsec
 import Control.Applicative hiding ((<|>), many, optional)
@@ -65,9 +66,9 @@ help = notify helpMsg
       , "  reset"
       , ""
       , "Entering a nullary command not listed here will attempt to call the lisp function"
-      , "of the same name - if present in your environment - with no arguments. Note that"
-      , "several basic commands are implemented in lisp, so *redefine them at your own risk*."
-      , "You can use the `reset' command to restore your environment if it becomes corrupted."
+      , "of the same name (if present in your environment). Note that several basic commands"
+      , " are implemented in lisp, so *override them at your own risk*. You can use the "
+      , "`reset' command to restore your environment if it becomes corrupted."
       ]
 
 send :: String -> Command
@@ -120,10 +121,11 @@ recycle n w = case find (matchName n) Self w of
                              _ -> notify "You can't recycle a non-empty object." w
 
 reset :: Command
-reset (o@(Obj{objId = f}),cs) = do
-  dropFrame f
-  f' <- pushFrame (M.fromList [], Just toplevel)
-  return (o{objId = f'}, cs) >>= notify "Bindings reset."
+reset w@((Obj{objId = f}),_) = do
+  (bs,_) <- getFrame f
+  let defs = M.keys bs \\ [pack "*name*", pack "*desc*", pack "*password*", pack "*handle*"]
+  mapM_ (unbind f) defs
+  notify "Bindings reset." w
 
 links :: String -> String -> Command
 links dir dest = notifyResult (\w -> zUp w >>= link dir (matchName dest) >>= find (focus w ==) Self) $

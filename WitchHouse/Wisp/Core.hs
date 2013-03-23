@@ -18,7 +18,7 @@ import WitchHouse.Wisp.TC
 import Control.Monad
 
 import qualified Data.Map as M
-import Data.ByteString.Char8 (pack)
+import Data.ByteString.Char8 (pack, unpack)
 import Data.ByteString (ByteString)
 
 import Data.HashTable.IO as H
@@ -140,7 +140,7 @@ f_set = Sform $ \vs f -> case vs of
       Right v -> do
         f' <- findBind s f
         case f' of
-          Nothing -> return . Left $ "Free or immutable variable: " ++ show s
+          Nothing -> return . Left $ "Free or immutable variable: " ++ unpack s
           Just n -> bind n s v >> return xv
       Left e -> return $ Left e
   _ -> return $ Left "Bad mutation syntax"
@@ -162,11 +162,13 @@ f_unset = Sform $ \vs f -> case vs of
 fold_num :: (Int -> Int -> Int) -> Sval
 fold_num op = Sprim $ \vs _ -> return $ do
   tc_fail (and . map tc_num) vs
+  tc_fail (not . null) vs
   return . Snum . foldl1 op $ map (\(Snum n) -> n) vs
 
 p_div :: Sval
 p_div = Sprim $ \vs _ -> return $ do
   tc_fail (and . map tc_num) vs
+  tc_fail (not . null) vs
   if any (==Snum 0) (tail vs) then Left "ERROR: divide by zero"
   else return . Snum . foldl1 quot $ map (\(Snum n) -> n) vs
 
@@ -217,7 +219,7 @@ f_if = Sform $ \vs f -> case vs of
   _ -> return . Left $ "if: bad conditional syntax: " ++ show (Slist $ sym_if:vs)
 
 f_begin :: Sval
-f_begin = Sform $ \sv f -> foldl1 (>>) $ map (\o -> p_apply p_eval [o] f) sv
+f_begin = Sform $ \sv f -> foldl (>>) (return . return $ Slist []) $ map (\o -> p_apply p_eval [o] f) sv
 
 p_arity :: Sval
 p_arity = Sprim $ \sv _ -> case sv of
@@ -291,7 +293,7 @@ _eval v f
 
 
 envLookup :: ByteString -> Maybe Int -> IO (Either String Sval)
-envLookup s Nothing = return . Left $ "Unable to resolve symbol: " ++ show s
+envLookup s Nothing = return . Left $ "Unable to resolve symbol: " ++ unpack s
 envLookup s (Just i) = do
   (binds,nxt) <- getFrame i
   case M.lookup s binds of Nothing -> envLookup s nxt

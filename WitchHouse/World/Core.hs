@@ -151,13 +151,16 @@ steps n w = step n (Just w, zDn w)
 -- current focus (Location); all nodes within some distance of the current
 -- focus (Distance n); or all nodes, everywhere (Global).
 find :: (Obj -> Bool) -> Scope -> WT
-find p s w = case List.find (p.focus) $ ops of Nothing -> Left "I don't know what you're talking about."
+find p s w = case List.find (p.focus) $ ops of Nothing -> failMsg
                                                Just w' -> Right w'
   where ops = case s of Self -> zDn w
                         Location -> case zUp w of Left _ -> []
                                                   Right l -> delete w $ zDn l
                         Distance i -> steps (Just i) w
                         Global -> steps Nothing w
+        failMsg = Left $ case s of Self -> "You aren't carrying anything like that."
+                                   Location -> "You don't see anything like that here."
+                                   _ -> "There's nothing like that here."
 
 -- | Like find, but returns an un-Either'd result (and errors if no matching
 -- node is found).

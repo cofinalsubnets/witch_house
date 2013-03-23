@@ -9,7 +9,7 @@ install: witch_house
 
 clean:
 	find . -regex ".*\.\(o\|\hi\)" -delete
-	rm -f "witch_house.prof"
+	rm -f "*.prof"
 
 .PHONY: build install clean
 
