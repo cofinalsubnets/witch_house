@@ -15,12 +15,8 @@ import WitchHouse.Wisp.Core (p_apply, p_eval)
 import Data.List (delete)
 
 import qualified Data.Map as M
-
 import System.IO (hPutStrLn, hFlush)
-
 import Data.ByteString.Char8 (pack)
-
-import qualified Data.Set as S (member)
 
 bootstrap :: IO ()
 bootstrap = do
@@ -39,7 +35,6 @@ bootstrap = do
       , (pack "w-up", wisp_w_up)
       , (pack "w-dn", wisp_w_dn)
       , (pack "location", wisp_w_loc)
-      , (pack "owner?", wisp_owner_p)
       , (pack "loc-exits", wisp_exits)
       , (pack "go-dir", wisp_go)
       ]
@@ -125,11 +120,6 @@ invoke f sv (Obj{objId = i},_) = do
 evalOn :: String -> World -> IO (Either String Sval)
 evalOn s (Obj{objId = i},_) = eval s i
 
-wisp_owner_p :: Sval
-wisp_owner_p = Sprim $ \vs _ -> return $ case vs of
-  [Sworld w1, Sworld w2] -> Right . Sbool $ (objId $ focus w1) `S.member` (owners $ focus w2)
-  _ -> Left $ "bad arguments: " ++ show vs
-
 wisp_w_up :: Sval
 wisp_w_up = Sprim $ \vs _ -> return $ case vs of
   [Sworld w] -> Sworld `fmap` exit w
@@ -159,6 +149,9 @@ wisp_tell :: Sval
 wisp_tell = Sprim $ \vs _ -> case vs of
   [Sworld w, Sstring s] -> do rw <- notify s w
                               return . Right . Sworld $ rw
+  [Shandle h, Sstring s] -> do hPutStrLn h s
+                               hFlush h
+                               return . Right $ Sstring s
   l -> return . Left $ "bad arguments: " ++ show l
 
 wisp_tell_loc :: Sval

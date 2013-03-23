@@ -22,12 +22,12 @@ import Data.ByteString.Char8 (pack, unpack)
 import Data.ByteString (ByteString)
 
 import Data.HashTable.IO as H
-import Data.Unique
 import System.IO.Unsafe
+import System.Random
 
 
 toplevel :: Int
-toplevel = hashUnique $ unsafePerformIO newUnique
+toplevel = unsafePerformIO randomIO
 
 env :: Env
 env = unsafePerformIO $ do
@@ -59,6 +59,8 @@ env = unsafePerformIO $ do
       , (pack "cons", p_cons    )
       , (pack "error", p_err )
       , (pack "arity", p_arity)
+      , (pack "make-self-ref", p_mk_self_ref)
+      , (pack "make-ref", p_mk_ref)
       ]
 
 getFrame :: Int -> IO Frame
@@ -71,7 +73,7 @@ dropFrame = H.delete env
 
 pushFrame :: Frame -> IO Int
 pushFrame f = do
-  u <- liftM hashUnique newUnique
+  u <- randomIO
   H.insert env u f
   return u
 
@@ -208,6 +210,16 @@ p_sym = Sprim $ \vs _ -> return $ case vs of
   [Sstring s] -> Right . Ssym $ pack s
   [v] -> Left $ "Bad type (expected string):" ++ show v
   _ -> len_fail 1 vs
+
+p_mk_self_ref :: Sval
+p_mk_self_ref = Sprim $ \vs i -> return $ case vs of
+  [] -> Right $ Sref i
+  _ -> len_fail 0 vs
+
+p_mk_ref :: Sval
+p_mk_ref = Sprim $ \vs _ -> case vs of
+  [] -> randomIO >>= return . Right . Sref
+  _ -> return $ len_fail 0 vs
 
 f_if :: Sval
 f_if = Sform $ \vs f -> case vs of

@@ -10,9 +10,9 @@ import qualified Data.Map as M
 import System.IO
 import Control.Monad ((>=>))
 import Prelude hiding (take, drop)
-import qualified Data.Set as S
 import Data.ByteString.Char8 (pack)
 import Data.List ((\\))
+import System.IO.Unsafe
 
 import Text.ParserCombinators.Parsec
 import Control.Applicative hiding ((<|>), many, optional)
@@ -56,14 +56,20 @@ help = notify helpMsg
       , "  whoami"
       , ""
       , "building commands:"
-      , "  make     <thing>"
+      , "  make     <thing> ;; make a new object with the given name. it will appear"
+      , "                   ;; in your inventory."
       , "  link     <origin> <destination> <direction>"
       , "  unlink   <origin> <direction>"
       , "  recycle  <thing>"
       , ""
-      , "lisp interaction (s-expressions will be automatically evaluated):"
-      , "  bindings"
-      , "  reset"
+      , "lisp interaction:"
+      , "  <s-expression> ;; eval the expression"
+      , "  @<target> <s-expression> ;; evaluate lisp in the target's context. you must"
+      , "                           ;; have a ref to the target in your *refs* binding."
+      , "  bindings ;; list current bindings in your environment"
+      , "  reset    ;; reset your environment. use with caution!"
+      , "  share <binding> <target>"
+
       , ""
       , "Entering a nullary command not listed here will attempt to call the lisp function"
       , "of the same name (if present in your environment). Note that several basic commands"
@@ -107,7 +113,45 @@ enters n w = case enter (matchName n) w of
                  ((++" enters.") . name . focus >>= notifyExcept) w'
 
 makes :: String -> Command
-makes n = make n >=> notify ("You make "++n++".")
+makes n w = do
+  w' <- make n w
+  addRef w (objId $ focus w')
+  notify ("You make "++n++".") w
+  return w'
+
+addRef :: World -> Int -> IO ()
+addRef (Obj{objId = f},_) i = do
+  let refsym = pack "*refs*"
+  (bs,_) <- getFrame f
+  bind f refsym $ case M.lookup refsym bs of
+    Just (Slist l) -> Slist $ (Sref i):l
+    _              -> Slist [Sref i]
+
+addBind :: World -> Sval -> IO ()
+addBind (Obj{objId = f},_) v = do
+  let bindsym = pack "*shared-bindings*"
+  (bs,_) <- getFrame f
+  bind f bindsym $ case M.lookup bindsym bs of
+    Just (Slist l) -> Slist $ v:l
+    _              -> Slist [v]
+
+hasRef :: World -> World -> Bool
+(Obj{objId = f1},_) `hasRef` (Obj{objId = f2},_) = unsafePerformIO $ do
+  (bs,_) <- getFrame f1
+  case M.lookup (pack "*refs*") bs of
+    Just (Slist l) -> return $ Sref f2 `elem` l
+    _ -> return False
+
+shareBinding :: String -> String -> Command
+shareBinding b t w = case find (matchName t) Location w of
+  Left err -> notify err w
+  Right t' -> do
+    (bs,_) <- getFrame (objId $ focus w)
+    case M.lookup (pack b) bs of
+      Nothing -> notify ("You don't have a binding called " ++ b ++ ".") w
+      Just v -> do addBind t' v
+                   notify "Binding shared!" w
+                   notify (name (focus w) ++ " has shared a binding with you!") t'
 
 recycle :: String -> Command
 recycle n w = case find (matchName n) Self w of
@@ -149,8 +193,7 @@ evals s w = do
 evalIn :: String -> String -> Command
 evalIn l t w = case find (matchName t) Location w of
   Left err -> notify err w
-  Right t' -> if (objId $ focus w) `S.member` (owners $ focus t') then evals l t'
-              else notify "You aren't allowed to do that." w
+  Right t' -> if w `hasRef` t' then evals l t' else notify "You aren't allowed to do that." w
 
 takes :: String -> Command
 takes n w = case take (matchName n) w of
@@ -192,7 +235,7 @@ command = optional whitespace *> (wispExpr <|> targetedExpr <|> cmd)
       s1 <- str
       s2 <- str
       eof'
-      return [s1,s2]
+      return (s1,s2)
 
 
     stringQuotedBy c = char c *> many cs <* char c
@@ -218,6 +261,7 @@ command = optional whitespace *> (wispExpr <|> targetedExpr <|> cmd)
        <|> cRecycle
        <|> cBindings
        <|> cHelp
+       <|> cShare
        <|> cSend
 
     cEnter    = enters `fmap` unary "enter"
@@ -226,7 +270,8 @@ command = optional whitespace *> (wispExpr <|> targetedExpr <|> cmd)
     cTake     = takes `fmap` unary "take"
     cDrop     = drops `fmap` unary "drop"
     cQuit     = nullary "quit" >> return quit
-    cLink     = binary "link" >>= \[dir,dest] -> return $ links dir dest
+    cLink     = binary "link" >>= \(dir,dest) -> return $ links dir dest
+    cShare    = binary "share" >>= \(b,t) -> return $ shareBinding b t
     cUnlink   = unlinks `fmap` unary "unlink"
     cSay      = say `fmap` try (string "say" *> whitespace *> many1 anyChar)
     cEmote    = me `fmap` try (string "\\me" *> whitespace *> many1 anyChar)

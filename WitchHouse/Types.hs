@@ -17,7 +17,6 @@ import Data.Function (on)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (unpack)
 import Data.HashTable.IO (BasicHashTable)
-import Data.Set (Set)
 
 -- command line options
 data Options = Options { portNo       :: Int
@@ -36,7 +35,6 @@ data Verbosity = V0 | V1 | V2 deriving (Show,Eq,Ord)
 data Obj = Obj { objId    :: Int
                , exits    :: Map String Int
                , contents :: [Obj]
-               , owners   :: Set Int
                , start    :: Bool
                }
 
@@ -71,6 +69,7 @@ data Sval = Snum    Int
           | Sform   { transform :: Htrans }
           | Sprim   { transform :: Htrans }
           | Shandle Handle
+          | Sref    Int
           | Sworld  World
 
 instance Show Sval where
@@ -84,7 +83,8 @@ instance Show Sval where
   show (Sprim _) = "#<prim fn>"
   show (Sworld (f,_)) = "#<obj:" ++ show (objId $ f) ++ ">"
   show (Shandle h) = show h
-  show (Sform _) = "#<form>"
+  show (Sform _) = "#<prim fm>"
+  show (Sref _)  = "#<ref>"
 
 instance Eq Sval where
   (Snum a)    == (Snum b)    = a == b
@@ -92,8 +92,9 @@ instance Eq Sval where
   (Sbool a)   == (Sbool b)   = a == b
   (Ssym a)    == (Ssym b)    = a == b
   (Slist a)   == (Slist b)   = a == b
-  (Sworld a)  == (Sworld b)  = (objId.fst $ a) == (objId.fst $ b)
   (Shandle a) == (Shandle b) = a == b
+  (Sref a)    == (Sref b)    = a == b
+  (Sworld a)  == (Sworld b)  = (objId.fst $ a) == (objId.fst $ b)
   (Sfunc a b c) == (Sfunc d e f) = (a,b,c) == (d,e,f)
   (Smacro a b c) == (Smacro d e f) = (a,b,c) == (d,e,f)
   _ == _ = False

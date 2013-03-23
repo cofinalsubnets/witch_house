@@ -16,7 +16,6 @@ module WitchHouse.World.Core
 , zIns
 , focus
 , context
-, owns
 , make
 , mkObj
 , name
@@ -30,7 +29,6 @@ import qualified Data.List as List (find)
 import Prelude hiding (take, drop)
 import Control.Monad (liftM, (>=>))
 import qualified Data.Map as M
-import qualified Data.Set as S (member, fromList)
 import WitchHouse.Wisp (toplevel, pushFrame, envLookup, bind)
 import System.IO
 import System.IO.Unsafe
@@ -45,7 +43,7 @@ make :: String -> World -> IO World
 make n w = do
   o <- mkObj
   bind (objId o) (pack "*name*") (Sstring n)
-  return . zUp' $ zIns o {owners = S.fromList [objId $ focus w]} w
+  return $ zIns o w
 
 -- | Create a new obj. In IO because we need to grab a new Unique identifier.
 mkObj :: IO Obj
@@ -54,12 +52,8 @@ mkObj = do
   return Obj { objId       = n
              , exits       = M.fromList []
              , contents    = []
-             , owners      = S.fromList []
              , start       = False
              }
-
-owns :: Obj -> Obj -> Bool
-o1 `owns` o2 = objId o1 `S.member` owners o2
 
 move :: (Obj -> Bool) -> Scope -> WT
 move _ _ (_,[]) = Left "You can't move this object."
