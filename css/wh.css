@@ -31,13 +31,13 @@ body {
 .centered {
   margin-left: auto;
   margin-right: auto;
-  text-align: center;
 }
 
 #wh_title {
   width: 50%;
   display: block;
   padding-bottom: 10px;
+  text-align: center;
 }
 
 a {
@@ -97,15 +97,9 @@ h3 {
 .wh_msg {
   padding: 3px;
   margin: 1px;
-  color: #0e0;
-  font-family: monospace;
-}
-
-.odd {
-  background-color: #000000;
-}
-
-.even {
-  background-color : #0a0a0a;
+  color: #0d3;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1),
+               0 0 5px rgba(181, 232, 83, 0.3),
+               0 0 10px rgba(181, 232, 83, 0.3);
 }
 
