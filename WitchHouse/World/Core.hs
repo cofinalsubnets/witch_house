@@ -45,7 +45,7 @@ make :: String -> World -> IO World
 make n w = do
   o <- mkObj
   bind (objId o) (pack "*name*") (Sstring n)
-  return $ zIns o {owners = S.fromList [objId $ focus w]} $ zUp' w
+  return . zUp' $ zIns o {owners = S.fromList [objId $ focus w]} w
 
 -- | Create a new obj. In IO because we need to grab a new Unique identifier.
 mkObj :: IO Obj

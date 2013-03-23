@@ -3,7 +3,6 @@
 module WitchHouse.Wisp.Core
 ( p_eval
 , p_apply
---, gc
 , envLookup
 , toplevel
 , env
@@ -15,13 +14,13 @@ module WitchHouse.Wisp.Core
 ) where
 
 import WitchHouse.Types
+import WitchHouse.Wisp.TC
 import Control.Monad
 
 import qualified Data.Map as M
 import Data.ByteString.Char8 (pack)
 import Data.ByteString (ByteString)
 
-import Data.Maybe (fromJust)
 import Data.HashTable.IO as H
 import Data.Unique
 import System.IO.Unsafe
@@ -63,7 +62,9 @@ env = unsafePerformIO $ do
       ]
 
 getFrame :: Int -> IO Frame
-getFrame = liftM fromJust . H.lookup env
+getFrame = liftM g . H.lookup env
+  where g (Just n) = n
+        g Nothing = error "getFrame: missing frame"
 
 dropFrame :: Int -> IO ()
 dropFrame = H.delete env
@@ -137,17 +138,25 @@ f_set = Sform $ \vs f -> case vs of
     xv <- p_apply p_eval [xp] f
     case xv of
       Right v -> do
-        f' <- findBind s $ Just f
+        f' <- findBind s f
         case f' of
-          Nothing -> return . Left $ "Unable to resolve symbol: " ++ show s
+          Nothing -> return . Left $ "Free or immutable variable: " ++ show s
           Just n -> bind n s v >> return xv
       Left e -> return $ Left e
-  _ -> return $ Left "Bad definition syntax"
+  _ -> return $ Left "Bad mutation syntax"
 
-  where findBind _ Nothing = return Nothing
-        findBind nm (Just n) = do
-          (bs,n') <- getFrame n
-          if nm `M.member` bs then return $ Just n else findBind nm n'
+  where findBind nm n
+          | n == toplevel = return Nothing
+          | otherwise = do (bs, Just n') <- getFrame n
+                           if nm `M.member` bs then return (Just n) else findBind nm n'
+
+f_unset :: Sval
+f_unset = Sform $ \vs f -> case vs of
+  [Ssym s] -> do
+    (bs,_) <- getFrame f
+    if s `M.member` bs then unbind f s >> (return . Right $ Sbool True)
+    else return . Left $ (show s) ++ " is unbound in this context."
+  _ -> return $ Left "Bad undefinition syntax"
 
 
 fold_num :: (Int -> Int -> Int) -> Sval
@@ -306,40 +315,10 @@ specialForms = M.fromList $
   , (pack "quasiquote", f_quasiq)
   , (pack "splice", f_splice)
   , (pack "macro", f_macro)
+  , (pack "unset!", f_unset)
   ]
 
-
-{- predicates for type & argument checking -}
-
-tc_str :: Sval -> Bool
-tc_str s = case s of { Sstring _ -> True; _ -> False }
-tc_num :: Sval -> Bool
-tc_num s = case s of { Snum _ -> True; _ -> False }
-tc_bool :: Sval -> Bool
-tc_bool s = case s of { Sbool _ -> True; _ -> False }
-tc_func :: Sval -> Bool
-tc_func s = case s of { Sfunc _ _ _ -> True; _ -> False }
-tc_macro :: Sval -> Bool
-tc_macro s = case s of { Smacro _ _ _ -> True; _ -> False }
-tc_world :: Sval -> Bool
-tc_world s = case s of { Sworld _ -> True; _ -> False }
-
-
-tc_sym :: Sval -> Bool
-tc_sym s = case s of { Ssym _ -> True; _ -> False }
-tc_list :: Sval -> Bool
-tc_list s = case s of { Slist _ -> True; _ -> False }
-tc_prim :: Sval -> Bool
-tc_prim s = case s of { Sprim _ -> True; _ -> False }
-tc_form :: Sval -> Bool
-tc_form s = case s of { Sform _ -> True; _ -> False }
-
-
-tc_fail :: Show a => (a -> Bool) -> a -> Either String ()
-tc_fail p v = if p v then return () else Left $ "Bad type: " ++ show v
-
-len_fail :: Int -> [a] -> Either String b
-len_fail n l = Left $ "Wrong number of arguments: " ++ show (length l) ++ " for " ++ show n
+{- helpers -}
 
 evalList :: [Sval] -> Int -> IO (Either String [Sval])
 evalList vs f = liftM sequence $ mapM (\o -> p_apply p_eval [o] f) vs

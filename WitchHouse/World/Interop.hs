@@ -9,12 +9,10 @@ module WitchHouse.World.Interop
 
 
 import WitchHouse.Types
-import WitchHouse.World.Global
 import WitchHouse.World.Core
 import WitchHouse.Wisp
 import WitchHouse.Wisp.Core (p_apply, p_eval)
 import Data.List (delete)
-import Data.IORef
 
 import qualified Data.Map as M
 
@@ -22,7 +20,7 @@ import System.IO (hPutStrLn, hFlush)
 
 import Data.ByteString.Char8 (pack)
 
-import qualified Data.Set as S (member, insert, delete)
+import qualified Data.Set as S (member)
 
 bootstrap :: IO ()
 bootstrap = do
@@ -32,8 +30,8 @@ bootstrap = do
 
   where
     primitives =
-      [ (pack "notify", wisp_notify)
-      , (pack "notify-room", wisp_notify_loc)
+      [ (pack "tell", wisp_tell)
+      , (pack "tell-room", wisp_tell_loc)
       , (pack "contents", wisp_w_contents)
       , (pack "neighbour", wisp_neighbour)
       , (pack "name", wisp_w_name)
@@ -44,9 +42,6 @@ bootstrap = do
       , (pack "owner?", wisp_owner_p)
       , (pack "loc-exits", wisp_exits)
       , (pack "go-dir", wisp_go)
-      , (pack "add-owner", wisp_add_owner)
-      , (pack "del-owner", wisp_del_owner)
-      , (pack "self", wisp_self)
       ]
 
     defs = unlines $
@@ -54,79 +49,66 @@ bootstrap = do
 
       , "  (define (enter n)"
       , "    ((lambda (dest)"
-      , "       (notify-room \"\" (cat *name* \" enters \" dest \".\") *self*)"
+      , "       (tell-room \"\" (cat *name* \" enters \" dest \".\") *self*)"
       , "       (set! *self* (w-dn *self* dest))"
-      , "       (notify-room \"\" (cat *name* \" enters.\") *self*)"
+      , "       (tell-room \"\" (cat *name* \" enters.\") *self*)"
       , "       (look))"
       , "     (if (world? n) (name n) n)))"
 
       , "  (define (take w)"
       , "    (enter"
-      , "      (notify-room (cat \"You take \" *name* \".\")"
+      , "      (tell-room (cat \"You take \" *name* \".\")"
       , "                   (cat (name w) \" takes \" *name* \".\")"
       , "                   w)))"
       
       , "  (define (drop w)"
-      , "    (exit)"
-      , "    (notify-room (cat \"You drop \" *name* \".\")"
-      , "                 (cat (name w) \" drops \" *name* \".\")"
-      , "                 w))"
+      , "    (tell-room (exit w)"
+      , "               (cat \"You drop \" *name* \".\")"
+      , "               (cat (name w) \" drops \" *name* \".\")))"
 
-      , "  (define (exit-room p)"
+      , "  (define (exit p)"
       , "    (let ((new (w-up p)))"
-      , "      (notify-room \"\" (cat (name p) \" leaves.\") p)"
-      , "      (notify-room \"\" (cat (name p) \" arrives.\") new)"
-      , "      (looks new)))"
+      , "      (tell-room p \"\" (cat (name p) \" leaves.\"))"
+      , "      (tell-room new \"\" (cat (name p) \" arrives.\"))"
+      , "      (look new)))"
 
-      , "  (define (looks p)"
-      , "    (notify (join (append (list (name (location p))"
+      , "  (define (look p)"
+      , "    (tell p (join (append (list (name (location p))"
       , "                                (desc (location p)))"
       , "                          (map (lambda (i) (cat (name i) \" is here.\"))"
       , "                               (filter (lambda (t) (not (= t p)))"
       , "                                       (contents (location p)))))"
-      , "                  \"\n\")"
-      , "            p))"
+      , "                  \"\n\")))"
 
 
-      , "  (define whoami (macro ()"
-      , "    `(let ((me (self)))"
-      , "       (notify (name me) me))))"
+      , "  (define (whoami w)"
+      , "    (tell w (name w)))"
 
-      , "  (define look (macro ()"
-      , "    `(looks (self))))"
+      , "  (define (inventory me)"
+      , "    (let ((cs (contents me)))"
+      , "      (if (null? cs)"
+      , "          (tell me \"You aren't carrying anything.\")"
+      , "          (tell me (join (cons \"You are carrying:\""
+      , "                              (map name cs))"
+      , "                           \"\n\")))))"
 
-      , "  (define exit (macro ()"
-      , "    `(exit-room (self))))"
-
-      , "  (define inventory (macro ()"
-      , "    `(let ((me (self)))"
-      , "       (let ((cs (contents me)))"
-      , "         (if (null? cs)"
-      , "             (notify \"You aren't carrying anything.\" me)"
-      , "             (notify (join (cons \"You are carrying:\""
-      , "                                 (map name cs))"
-      , "                         \"\n\")"
-      , "                   me))))))"
-
-      , "  (define exits (macro ()"
-      , "    `(let ((me (self))"
-      , "           (xs (loc-exits (location (self)))))"
-      , "       (if (null? xs)"
-      , "           (notify \"There are no exits from your current location.\" me)"
-      , "           (notify (join (cons \"The following exits are available: \""
-      , "                               xs)"
-      , "                         \"\n\")"
-      , "                   me)))))"
+      , "  (define (exits me)"
+      , "    (let ((xs (loc-exits (location me))))"
+      , "      (if (null? xs)"
+      , "          (tell me \"There are no exits from your current location.\")"
+      , "          (tell me (join (cons \"The following exits are available: \""
+      , "                                 xs)"
+      , "                           \"\n\")))))"
 
       
       , "  (define (examine w)"
-      , "    (notify *desc* w))"
+      , "    (tell w *desc*))"
 
       , "  (define (go dir)"
       , "    (define old-self *self*)"
       , "    (set! *self* (go-dir dir *self*))"
-      , "    (notify-room \"\" (cat *name* \" goes \" dir \".\") old-self)"
-      , "    (notify-room \"\" (cat *name* \" arrives.\") *self*)"
+      , "    (tell-room \"\" (cat *name* \" goes \" dir \".\") old-self)"
+      , "    (tell-room \"\" (cat *name* \" arrives.\") *self*)"
       , "    (look))"
 
       , ")"
@@ -173,15 +155,15 @@ wisp_w_desc = Sprim $ \vs _ -> return $ case vs of
   [Sworld (f,_)] -> Right . Sstring . description $ f
   l -> Left $ "bad arguments: " ++ show l
 
-wisp_notify :: Sval
-wisp_notify = Sprim $ \vs _ -> case vs of
-  [Sstring s, Sworld w] -> do rw <- notify s w
+wisp_tell :: Sval
+wisp_tell = Sprim $ \vs _ -> case vs of
+  [Sworld w, Sstring s] -> do rw <- notify s w
                               return . Right . Sworld $ rw
   l -> return . Left $ "bad arguments: " ++ show l
 
-wisp_notify_loc :: Sval
-wisp_notify_loc = Sprim $ \vs _ -> case vs of
-  [Sstring s, Sstring o, Sworld w] -> do rw <- notify s w >> notifyExcept o w
+wisp_tell_loc :: Sval
+wisp_tell_loc = Sprim $ \vs _ -> case vs of
+  [Sworld w, Sstring s, Sstring o] -> do rw <- notify s w >> notifyExcept o w
                                          return . Right . Sworld $ rw
   l -> return . Left $ "bad arguments: " ++ show l
 
@@ -195,51 +177,15 @@ wisp_go = Sprim $ \vs _ -> return $ case vs of
   [Sstring dir, Sworld w] -> Sworld `fmap` go dir w
   _ -> Left $ "bad arguments: " ++ show vs
 
-getSelf :: Int -> IO World
-getSelf i = do
-  w <- readIORef world
-  case find ((i==) . objId) Global w of
-    Right w' -> return w'
-    Left _ -> do (_,n) <- getFrame i
-                 case n of
-                   Nothing -> error "can't find self!"
-                   Just i' -> getSelf i'
-                                                     
-
 wisp_neighbour :: Sval
-wisp_neighbour = Sprim $ \vs i -> do
-  self <- getSelf i
-  return $ case vs of
-    [Sstring n] -> Sworld `fmap` find (matchName n) Location self
-    _ -> Left $ "bad arguments: " ++ show vs
-
-wisp_add_owner :: Sval
-wisp_add_owner = Sprim $ \vs i -> case vs of
-  [Sworld (f,c), Sworld t@(o,_)] -> do
-    (vf,_) <- getSelf i
-    if vf `owns` f then do notify ("You now own " ++ name f ++ ".") t
-                           return . return $ Sworld (f{owners = S.insert (objId o) (owners f)},c)
-    else return $ Left "You must own an object to grant ownership of that object."
-  _ -> return . Left $ "bad arguments: " ++ show vs
-
-wisp_self :: Sval
-wisp_self = Sprim . const $ fmap (Right . Sworld) . getSelf
+wisp_neighbour = Sprim $ \vs _ -> return $ case vs of
+  [Sstring n, Sworld w] -> Sworld `fmap` find (matchName n) Location w
+  _ -> Left $ "bad arguments: " ++ show vs
 
 wisp_w_name :: Sval
 wisp_w_name = Sprim $ \vs _ -> return $ case vs of
   [Sworld (f,_)] -> Right . Sstring . name $ f
   l -> Left $ "bad arguments: " ++ show l
-
-
-wisp_del_owner :: Sval
-wisp_del_owner = Sprim $ \vs i -> case vs of
-  [Sworld (f,c), Sworld t@(o,_)] -> do
-    (vf,_) <- getSelf i
-    if vf `owns` f then do notify ("You no longer own " ++ name f ++ ".") t
-                           return . return $ Sworld (f{owners = S.delete (objId o) (owners f)},c)
-    else return $ Left "You must own an object to revoke ownership of that object."
-  _ -> return . Left $ "bad arguments: " ++ show vs
-
 
 {- haskell-level notification primitives -}
 

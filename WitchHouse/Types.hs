@@ -24,7 +24,7 @@ data Options = Options { portNo       :: Int
                        , dbPath       :: FilePath
                        , persistent   :: Bool
                        , autosave     :: Int
-                       , initialState :: ()
+                       , initialState :: World
                        , verbosity    :: Verbosity
                        , logHandle    :: Handle
                        }

@@ -1,7 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 module WitchHouse.World
 ( module WitchHouse.World.Core
-, module WitchHouse.World.Global
 , invoke
 , evalOn
 , notify
@@ -11,5 +10,4 @@ module WitchHouse.World
 
 import WitchHouse.World.Core
 import WitchHouse.World.Interop
-import WitchHouse.World.Global
 

@@ -1,4 +1,4 @@
-module WitchHouse.Wisp.Stl (stl) where
+module WitchHouse.Wisp.STL (stl) where
 
 stl :: String
 stl = unlines $

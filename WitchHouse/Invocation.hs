@@ -10,11 +10,13 @@ import Control.Concurrent (setNumCapabilities)
 import Control.Exception (SomeException, evaluate, catch)
 import System.Posix.User
 import System.Directory
+import Data.ByteString.Char8 (pack)
 import System.IO
 
 import WitchHouse.Types
 --import WitchHouse.Persistence (connect, disconnect, loadWorld)
-import WitchHouse.Wisp (repl)
+import WitchHouse.Wisp (repl, bind)
+import WitchHouse.World
 import WitchHouse.Version
 
 handleArgs :: [String] -> IO Options
@@ -133,12 +135,19 @@ configDir = do
 defaults :: IO Options
 defaults = do
   c <- configDir
+  w <- blankWorld
   return Options { portNo       = 10101
                  , dbPath       = c ++ "/witch_house.db"
                  , persistent   = True
                  , autosave     = 300
-                 , initialState = ()
+                 , initialState = w
                  , verbosity    = V1
                  , logHandle    = stdout
                  }
+
+blankWorld :: IO World
+blankWorld = do
+  root <- mkObj
+  bind (objId root) (pack "*name*") (Sstring "Root")
+  return (root{start = True}, [])
 

@@ -72,7 +72,7 @@ help = notify helpMsg
 
 send :: String -> Command
 send actn w = do
-  res <- invoke actn [] w
+  res <- invoke actn [Sworld w] w
   case res of Left err -> notify err w
               Right (Sworld w') -> return w'
               Right _ -> return w
@@ -102,7 +102,7 @@ enters :: String -> Command
 enters n w = case enter (matchName n) w of
   Left err -> notify err w
   Right w' -> do (++ " enters "++(name . focus . zUp' $ w')++".") . name . focus >>= notifyExcept $ w
-                 invoke "looks" [Sworld w'] w'
+                 send "look" w'
                  ((++" enters.") . name . focus >>= notifyExcept) w'
 
 makes :: String -> Command

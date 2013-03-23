@@ -2,9 +2,7 @@ module WitchHouse.Server (startServer) where
 
 import Control.Monad
 import Control.Concurrent
-import Control.Exception (try, SomeException)
 import Data.Time
-import Data.IORef
 import Network
 import System.IO
 import System.Exit
@@ -23,10 +21,12 @@ import Data.ByteString.Char8 (pack)
 startServer :: Options -> IO ()
 startServer opts = do
   let logger = mkLogger (logHandle opts) "%H:%M:%S %z"(verbosity opts)
-  sem <- newMVar ()
+  mw <- newMVar (initialState opts)
   sock <- listenOn $ PortNumber (fromIntegral . portNo $ opts)
 
   logger V1 $ "Listening on port " ++ show (portNo opts)
+
+  forkIO $ garbageCollect mw
 
 {-
   when (persistent opts) $ do
@@ -43,7 +43,14 @@ startServer opts = do
     hSetNewlineMode h universalNewlineMode
 
     -- Start the user session.
-    forkFinally (session h sem) (\_ -> logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p)
+    forkFinally (session h mw) (\e -> logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p ++ " -- " ++ show e)
+
+garbageCollect :: MVar World -> IO ()
+garbageCollect mw = forever $ do
+  threadDelay 300000000
+  w <- takeMVar mw
+  gcW w
+  putMVar mw w
 
 {-
 persist :: TMVar World -> Int -> FilePath -> Logger -> IO ()
@@ -57,27 +64,16 @@ persist tmw i f l = do
   persist tmw i f l
   -}
 
-session :: Handle -> MVar () -> IO ()
-session h sem = do
-  li <- timeout 60000000 $ login h sem -- 1 min. timeout for login
+session :: Handle -> MVar World -> IO ()
+session h mw = do
+  li <- timeout 60000000 $ login h mw -- 1 min. timeout for login
   case join li of
     Nothing -> return ()
     Just n  -> forever $ do
       stop <- hIsClosed h
       when stop exitSuccess
       c <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
-      takeMVar sem
-      w <- liftM (find' (n==) Global) (readIORef world) -- TODO: better error handling here
-      res <- timeout 1000000 . try $ handleCommand c w :: IO (Maybe (Either SomeException World))
-      case res of
-        Nothing -> do
-          hPutStrLn h "Operation failed due to timeout."
-          writeIORef world w
-        Just (Left x) -> do
-          hPutStrLn h $ "An error occurred: " ++ show x
-          writeIORef world w
-        Just (Right w') -> writeIORef world w'
-      putMVar sem ()
+      modifyMVar_ mw (return . (find' (n==) Global) >=> handleCommand c)
 
   where
     handleCommand c = case c of Nothing -> parseCommand "quit"
@@ -88,21 +84,20 @@ session h sem = do
 connectMsg :: String
 connectMsg = "witch_house " ++ version
 
-welcomeMsg :: Obj -> World -> String
-welcomeMsg o _ = "Welcome, " ++ name o ++ "."
+welcomeMsg :: String
+welcomeMsg = "hai there"
 
 -- | Handle a login request. The request will fail if someone is already
 -- logged in with the given name; otherwise, the client will be attached to
 -- the object with the given name (one will be created if it doesn't exist).
-login :: Handle -> MVar () -> IO (Maybe Obj)
-login h sem = do
+login :: Handle -> MVar World -> IO (Maybe Obj)
+login h mw = do
   -- login
   hPutStrLn h connectMsg
   hPutStr h "Name: " >> hFlush h
 
   n <- hGetLine h
-  takeMVar sem
-  w <- readIORef world
+  w <- readMVar mw
   case find ((n==).name) Global w of
     Right o -> case (password.focus) o of
       Just pw -> do hPutStr h "Password: " >> hFlush h
@@ -118,12 +113,9 @@ login h sem = do
 
     loginFailure s = hPutStrLn h s >> hClose h >> return Nothing
 
-    loginExisting (p,_) = do w <- readIORef world
-                             let (p',c) = find' (p==) Global w
-                             bind (objId p') (pack "*handle*") (Shandle h)
-                             putMVar sem ()
-                             hPutStrLn h (welcomeMsg p' (p',c)) >> hFlush h
-                             return $ Just p'
+    loginExisting (p,_) = do bind (objId p) (pack "*handle*") (Shandle h)
+                             hPutStrLn h welcomeMsg >> hFlush h
+                             return $ Just p
 
     loginNew s = do hPutStrLn h ("Creating new node for " ++ s ++ ".") >> hFlush h
                     hPutStr h "Password: " >> hFlush h
@@ -131,13 +123,8 @@ login h sem = do
 
                     -- make a new obj
                     o <- mkPlayer s pw h
-
-                    w <- readIORef world
-                    let w' = zIns o $ find' start Global w
-                    writeIORef world w'
-
-                    putMVar sem ()
-                    hPutStrLn h (welcomeMsg o w') >> hFlush h
+                    modifyMVar_ mw (return . zIns o . find' start Global)
+                    hPutStrLn h welcomeMsg >> hFlush h
                     return $ Just o
 
 type Logger = Verbosity -> String -> IO ()
