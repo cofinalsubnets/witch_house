@@ -18,7 +18,6 @@ import WitchHouse.Types
 import WitchHouse.Wisp.Core
 import WitchHouse.Wisp.Parser
 import WitchHouse.Wisp.STL
-import WitchHouse.Wisp.GC
 
 import System.IO
 import System.IO.Error

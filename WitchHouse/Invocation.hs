@@ -1,8 +1,4 @@
-module WitchHouse.Invocation
-( Options(..)
-, Verbosity(..)
-, handleArgs
-) where
+module WitchHouse.Invocation (handleArgs) where
 
 import System.Console.GetOpt
 import System.Exit (exitSuccess, exitFailure)

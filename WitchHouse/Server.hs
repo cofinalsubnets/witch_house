@@ -41,7 +41,7 @@ startServer opts = do
     hSetNewlineMode h universalNewlineMode
 
     -- Start the user session.
-    forkFinally (session h mw) (\_ -> logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p ++ " -- ")
+    forkFinally (session h mw) (\_ -> logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p)
 
 garbageCollect :: MVar World -> IO ()
 garbageCollect mw = forever $ do

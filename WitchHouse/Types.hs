@@ -1,4 +1,3 @@
-{-# LANGUAGE GADTs, FlexibleInstances #-}
 module WitchHouse.Types
 ( Options(..)
 , Verbosity(..)

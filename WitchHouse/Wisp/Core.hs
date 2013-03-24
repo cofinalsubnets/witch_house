@@ -11,24 +11,25 @@ module WitchHouse.Wisp.Core
 , getFrame
 , pushFrame
 , dropFrame
+, gc
+, gcW
 ) where
 
 import WitchHouse.Types
-import WitchHouse.Wisp.TC
 import Control.Monad
-
+import Data.List
+import Data.Graph
 import qualified Data.Map as M
+import qualified Data.HashTable.IO as H
 import Data.ByteString.Char8 (pack, unpack)
 import Data.ByteString (ByteString)
-
-import Data.HashTable.IO as H
 import System.IO.Unsafe
 import System.Random
 
-
 toplevel :: Int
-toplevel = unsafePerformIO randomIO
+toplevel = 0
 
+-- what's a functional programming language without global mutable state?
 env :: Env
 env = unsafePerformIO $ do
   e <- H.new
@@ -36,32 +37,46 @@ env = unsafePerformIO $ do
   return e
   where
     bindings = M.fromList $
-      [ (pack "+",      fold_num (+) )
-      , (pack "-",      fold_num (-) )
-      , (pack "*",      fold_num (*) )
-      , (pack "/",      p_div)
-      , (pack "=",      p_eq    )
-      , (pack "eval",   p_eval  )
-      , (pack "cat",    p_cat   )
-      , (pack "apply",  w_apply )
-      , (pack "string", p_str)
-      , (pack "symbol", p_sym)
-      , (pack "bool?", check tc_bool)
-      , (pack "string?", check tc_str)
-      , (pack "number?", check tc_num)
-      , (pack "world?", check tc_world)
-      , (pack "func?", check tc_func)
-      , (pack "list?", check tc_list)
-      , (pack "symbol?", check tc_sym)
-      , (pack "primitive?", check tc_prim)
-      , (pack "macro?", check tc_macro)
-      , (pack "null?",  p_null  )
-      , (pack "cons", p_cons    )
-      , (pack "error", p_err )
-      , (pack "arity", p_arity)
+      [ (pack "+",          fold_num (+)   )
+      , (pack "-",          fold_num (-)   )
+      , (pack "*",          fold_num (*)   )
+      , (pack "/",          p_div          )
+      , (pack "=",          p_eq           )
+      , (pack "eval",       p_eval         )
+      , (pack "cat",        p_cat          )
+      , (pack "apply",      w_apply        )
+      , (pack "string",     p_str          )
+      , (pack "symbol",     p_sym          )
+      , (pack "null?",      p_null         )
+      , (pack "cons",       p_cons         )
+      , (pack "error",      p_err          )
+      , (pack "arity",      p_arity        )
+      , (pack "bool?",      check tc_bool  )
+      , (pack "string?",    check tc_str   )
+      , (pack "number?",    check tc_num   )
+      , (pack "world?",     check tc_world )
+      , (pack "func?",      check tc_func  )
+      , (pack "list?",      check tc_list  )
+      , (pack "symbol?",    check tc_sym   )
+      , (pack "primitive?", check tc_prim  )
+      , (pack "macro?",     check tc_macro )
+      , (pack "handle?",    check tc_handle)
+      , (pack "ref?",       check tc_ref   )
+      , (pack "make-ref",   p_mk_ref       )
       , (pack "make-self-ref", p_mk_self_ref)
-      , (pack "make-ref", p_mk_ref)
       ]
+
+    fold_num op = Sprim $ \vs _ -> return $ do
+      tc_fail (and . map tc_num) vs
+      tc_fail (not . null) vs
+      return . Snum . foldl1 op $ map (\(Snum n) -> n) vs
+
+    check p = Sprim $ \vs f -> do
+      vs' <- evalList vs f
+      case vs' of 
+        Right vs'' -> return . return . Sbool $ all p vs''
+        Left err -> return $ Left err
+
 
 getFrame :: Int -> IO Frame
 getFrame = liftM g . H.lookup env
@@ -87,7 +102,15 @@ unbind u k = do
   (bs,p) <- getFrame u
   H.insert env u (M.delete k bs, p)
 
-{- PRIMITIVES -}
+envLookup :: ByteString -> Maybe Int -> IO (Either String Sval)
+envLookup s Nothing = return . Left $ "Unable to resolve symbol: " ++ unpack s
+envLookup s (Just i) = do
+  (binds,nxt) <- getFrame i
+  case M.lookup s binds of Nothing -> envLookup s nxt
+                           Just v -> return $ Right v
+
+
+-- Primitive fns and special forms
 
 f_quote :: Sval
 f_quote = Sform $ \vs _ -> return $ case vs of
@@ -103,7 +126,7 @@ f_quasiq = Sform $ \vs f -> case vs of
     spliceL l f = do rs <- mapM (splice f) l
                      return $ Slist `fmap` sequence rs
     splice f sv = case sv of
-      Slist l@[s, v] -> if s == sym_splice then p_apply p_eval [v] f
+      Slist l@[s, v] -> if s == sym_splice then _eval v f
                         else spliceL l f
       Slist l -> spliceL l f
       v -> return . return $ v
@@ -121,12 +144,12 @@ f_macro :: Sval
 f_macro = Sform $ \vs f -> return $
   case vs of (Slist ps):svs -> let ps' = map (\(Ssym s) -> s) ps
                                in return $ Smacro ps' svs f
-             _ -> Left "Malformed macro definition"
+             _ -> Left "Malformed macro"
 
 f_define :: Sval
 f_define = Sform $ \vs f -> case vs of
   [Ssym s, xp] -> do
-    xv <- p_apply p_eval [xp] f
+    xv <- _eval xp f
     case xv of
       Right v -> bind f s v >> return (Right v)
       Left e -> return $ Left e
@@ -137,35 +160,34 @@ f_define = Sform $ \vs f -> case vs of
 f_set :: Sval
 f_set = Sform $ \vs f -> case vs of
   [Ssym s, xp] -> do
-    xv <- p_apply p_eval [xp] f
+    xv <- _eval xp f
     case xv of
       Right v -> do
-        f' <- findBind s f
+        f' <- findBinding s f
         case f' of
           Nothing -> return . Left $ "Free or immutable variable: " ++ unpack s
           Just n -> bind n s v >> return xv
       Left e -> return $ Left e
   _ -> return $ Left "Bad mutation syntax"
 
-  where findBind nm n
-          | n == toplevel = return Nothing
-          | otherwise = do (bs, Just n') <- getFrame n
-                           if nm `M.member` bs then return (Just n) else findBind nm n'
-
 f_unset :: Sval
 f_unset = Sform $ \vs f -> case vs of
   [Ssym s] -> do
-    (bs,_) <- getFrame f
-    if s `M.member` bs then unbind f s >> (return . Right $ Sbool True)
-    else return . Left $ (show s) ++ " is unbound in this context."
+    f' <- findBinding s f
+    case f' of
+      Nothing -> return . Left $ "Free or immutable variable: " ++ unpack s
+      Just n -> do (b,_) <- getFrame n
+                   let v = b M.! s
+                   unbind n s
+                   return $ Right v
   _ -> return $ Left "Bad undefinition syntax"
 
+findBinding :: ByteString -> Int -> IO (Maybe Int)
+findBinding nm n
+  | n == toplevel = return Nothing
+  | otherwise = do (bs, Just n') <- getFrame n
+                   if nm `M.member` bs then return (Just n) else findBinding nm n'
 
-fold_num :: (Int -> Int -> Int) -> Sval
-fold_num op = Sprim $ \vs _ -> return $ do
-  tc_fail (and . map tc_num) vs
-  tc_fail (not . null) vs
-  return . Snum . foldl1 op $ map (\(Snum n) -> n) vs
 
 p_div :: Sval
 p_div = Sprim $ \vs _ -> return $ do
@@ -233,14 +255,14 @@ f_as = Sform $ \vs i -> case vs of
 f_if :: Sval
 f_if = Sform $ \vs f -> case vs of
   [cond, y, n] -> do
-    v <- p_apply p_eval [cond] f
+    v <- _eval cond f
     case v of Left err -> return $ Left err
-              Right v' -> case v' of (Sbool False) -> p_apply p_eval [n] f
-                                     _             -> p_apply p_eval [y] f
+              Right v' -> case v' of (Sbool False) -> _eval n f
+                                     _             -> _eval y f
   _ -> return . Left $ "if: bad conditional syntax: " ++ show (Slist $ sym_if:vs)
 
 f_begin :: Sval
-f_begin = Sform $ \sv f -> foldl (>>) (return . return $ Slist []) $ map (\o -> p_apply p_eval [o] f) sv
+f_begin = Sform $ \sv f -> foldl (>>) (return . return $ Slist []) $ map (\o -> _eval o f) sv
 
 p_arity :: Sval
 p_arity = Sprim $ \sv _ -> case sv of
@@ -271,8 +293,11 @@ p_apply sv vs i
                     in do
                       n <- pushFrame (M.fromList (varV ++ posV), Just $ frameNo sv)
                       res <- _eval (Slist ((sym_begin):(body sv))) n
+
+                      -- only keep the frame if there's a chance we'll need it later
                       case res of Left _ -> dropFrame n >> return res
                                   Right r  -> when (not $ tc_macro r || tc_func r) (dropFrame n) >> return res
+
 
 p_eval :: Sval
 p_eval = Sprim $ \v -> case v of
@@ -307,62 +332,127 @@ _eval v f
                          Right vals' -> p_apply op' vals' f
                          Left err -> return $ Left err
                      else do expn <- p_apply op' vs f
+                             -- this is what less insane lisps call `macroexpansion time.' haha.
                              case expn of Left err -> return $ Left err
                                           Right xv -> _eval xv f
 
     _apply _ = error "_eval: _apply: unexpected pattern"
 
-
-envLookup :: ByteString -> Maybe Int -> IO (Either String Sval)
-envLookup s Nothing = return . Left $ "Unable to resolve symbol: " ++ unpack s
-envLookup s (Just i) = do
-  (binds,nxt) <- getFrame i
-  case M.lookup s binds of Nothing -> envLookup s nxt
-                           Just v -> return $ Right v
-
-{-
--- | VERY primitive reference-counting garbage collection.
-gc :: Env -> Env
-gc env = foldl (flip M.delete) env (M.keys env \\ ks)
-  where ks = [0] ++ (map frameNo . filter tc_func $ concatMap M.elems (map fst $ M.elems env))
--}
-
-specialForms :: M.Map ByteString Sval
-specialForms = M.fromList $
-  [ (pack "define", f_define)
-  , (pack "begin",  f_begin )
-  , (pack "quote",  f_quote )
-  , (pack "if",     f_if    )
-  , (pack "lambda", f_lambda)
-  , (pack "set!",   f_set   )
-  , (pack "quasiquote", f_quasiq)
-  , (pack "splice", f_splice)
-  , (pack "macro", f_macro)
-  , (pack "unset!", f_unset)
-  , (pack "as", f_as)
-  ]
-
-{- helpers -}
+    specialForms = M.fromList $
+      [ (pack "define",     f_define)
+      , (pack "begin",      f_begin )
+      , (pack "quote",      f_quote )
+      , (pack "if",         f_if    )
+      , (pack "lambda",     f_lambda)
+      , (pack "set!",       f_set   )
+      , (pack "splice",     f_splice)
+      , (pack "macro",      f_macro )
+      , (pack "unset!",     f_unset )
+      , (pack "as",         f_as    )
+      , (pack "quasiquote", f_quasiq)
+      ]
 
 evalList :: [Sval] -> Int -> IO (Either String [Sval])
-evalList vs f = liftM sequence $ mapM (\o -> p_apply p_eval [o] f) vs
+evalList vs f = liftM sequence $ mapM (\o -> _eval o f) vs
 
-check :: (Sval -> Bool) -> Sval
-check p = Sprim $ \vs f -> do
-  vs' <- evalList vs f
-  case vs' of 
-    Right vs'' -> return . return . Sbool $ all p vs''
-    Left err -> return $ Left err
+{- bytestring constants -}
 
-{- symbol & bytestring constants -}
 sym_if :: Sval
 sym_if = Ssym $ pack "if"
+
 sym_begin :: Sval
 sym_begin = Ssym $ pack "begin"
+
 sym_lambda :: Sval
 sym_lambda = Ssym $ pack "lambda"
+
 sym_splice :: Sval
 sym_splice = Ssym $ pack "splice"
+
 bs_splat :: ByteString
 bs_splat = pack "."
+
+-- type and argument checking
+
+tc_str :: Sval -> Bool
+tc_str s = case s of { Sstring _ -> True; _ -> False }
+
+tc_num :: Sval -> Bool
+tc_num s = case s of { Snum _ -> True; _ -> False }
+
+tc_bool :: Sval -> Bool
+tc_bool s = case s of { Sbool _ -> True; _ -> False }
+
+tc_func :: Sval -> Bool
+tc_func s = case s of { Sfunc _ _ _ -> True; _ -> False }
+
+tc_macro :: Sval -> Bool
+tc_macro s = case s of { Smacro _ _ _ -> True; _ -> False }
+
+tc_world :: Sval -> Bool
+tc_world s = case s of { Sworld _ -> True; _ -> False }
+
+tc_ref :: Sval -> Bool
+tc_ref s = case s of { Sref _ -> True; _ -> False }
+
+tc_handle :: Sval -> Bool
+tc_handle s = case s of { Shandle _ -> True; _ -> False }
+
+tc_sym :: Sval -> Bool
+tc_sym s = case s of { Ssym _ -> True; _ -> False }
+
+tc_list :: Sval -> Bool
+tc_list s = case s of { Slist _ -> True; _ -> False }
+
+tc_prim :: Sval -> Bool
+tc_prim s = case s of { Sprim _ -> True; _ -> False }
+
+tc_form :: Sval -> Bool
+tc_form s = case s of { Sform _ -> True; _ -> False }
+
+-- | Cause a computation in Either to fail when a (type) predicate returns
+-- false.
+tc_fail :: Show a => (a -> Bool) -> a -> Either String ()
+tc_fail p v = if p v then return () else Left $ "Bad type: " ++ show v
+
+-- | Generate a generic `wrong number of arguments' error.
+len_fail :: Int -> [a] -> Either String b
+len_fail n l = Left $ "Wrong number of arguments: " ++ show (length l) ++ " for " ++ show n
+
+{- GARBAGE COLLECTION -}
+
+-- | Create a graph representing the state of the lisp environment.
+envGraph :: IO (Graph, (Vertex -> ((), Int, [Int])), (Int -> Maybe Vertex))
+envGraph = do
+  frames <- H.toList env
+  return . graphFromEdges $ map (\(n,(bs,_)) -> ((), n, map frameNo $ filter (\s -> tc_func s || tc_macro s) (M.elems bs))) frames
+
+-- | General case naive garbage collection. Drops all frames not reachable
+-- from toplevel.
+gc :: IO ()
+gc = do
+  (g, v2i, i2v) <- envGraph
+  let tv = case i2v toplevel of { Just v -> v; Nothing -> error "gc: rilly messed up env!" }
+      getKey = (\(_,k,_) -> k) . v2i
+      rs = reachable g tv
+      vs = map getKey $ vertices g
+      ks = map getKey rs
+  mapM_ (H.delete env) (vs \\ ks)
+
+
+-- | GC algorithm modified to preserve frames belonging to or reachable from
+-- object nodes.
+gcW :: World -> IO ()
+gcW w = do
+  (g, v2i, i2v) <- envGraph
+  let getKey = (\(_,k,_) -> k) . v2i
+      getVec i = case i2v i of { Just v -> v; Nothing -> error "gcW: messed up env!" }
+      rs = concatMap (reachable g) $ map getVec (toplevel:(objIds w))
+      vs = map getKey $ vertices g
+      ks = map getKey rs
+  mapM_ (H.delete env) (vs \\ ks)
+  where
+    depth o = o:(contents o) ++ (concatMap depth $ contents o)
+    breadth = concatMap depth
+    objIds (f,c) = map objId $ breadth (f:c)
 
