@@ -1,4 +1,6 @@
 safe: true
 auto: false
 server: false
+url: http://walpurgisriot.github.com/witch_house
+pygments: true
 
