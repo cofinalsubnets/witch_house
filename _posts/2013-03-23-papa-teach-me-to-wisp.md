@@ -80,23 +80,27 @@ or in a toplevel command like:
 
 (NB: this will only work if the ref is present in the caller's \*refs\* variable -- creating an object using `make` places a ref there automatically. think of it like a keychain.)
 
-obviously you don't want to give away your own ref to just anyone. but suppose you want to give someone _temporary_ access to a ref of yours. they're understandably unwilling to give you their own ref, so how can you ensure they have access to yours only as long as you want them to? write a function and share it!
+obviously you don't want to give away your own ref to just anyone. but suppose you want to give someone _temporary_ access to a ref of yours. they're understandably unwilling to give you their own ref, so how can you ensure they have access to yours only as long as you want them to? you can write a function that returns a macro that mediates access!
 
 {% highlight scheme %}
     (define *revoked-refs* '())
-    (define (revoked ref) (member ref *revoked-refs*))
+    (define (revoked? ref) (member ref *revoked-refs*))
     (define (revoke! ref) (set! *revoked-refs* (cons ref *revoked-refs*)))
-    (define (make-revokeable-ref ref) (lambda () (if (not (revoked ref)) ref #f)))
-    (define shareable-ref (make-revokeable-ref my-valuable-ref))
+    (define (make-revokeable-evaluator ref) (macro (exp) (if (revoked? ref) "Access denied." `(as ,ref ,exp))))
+    (define as-valuable-ref (make-revokeable-evaluator my-valuable-ref))
 {% endhighlight %}
 
-the recipient, after binding the `shareable-ref` in their own namespace, can use it like this:
+the recipient, after binding `as-valuable-ref` in their own namespace, can use it like this:
 
 {% highlight scheme %}
-    (as (shareable-ref) (cause-mischief))
+    (as-valuable-ref (cause-mischief))
 {% endhighlight %}
 
 but only for as long as you permit it.
 
-this demonstrates an important point about shared bindings: they're still evaluated in their original environment. but the evaluation is "opaque" in the sense that it doesn't give the holder of the binding any access to that environment beyond what the function itself provides. so you can use shared bindings to safely share valuable resources - just like Frances did with hir output handle earlier.
+we needed to use a macro in this example in order to prevent the expression from being prematurely evaluated in the incorrect context. if we had used a function instead, then `(cause-mischief)` would have been evaluated in the caller's context before the interpreter even got to the `as` form. this demonstrates two important points about shared bindings:
+
+- they're still evaluated in their original (ie, their creator's) environment. but the evaluation is "opaque" in the sense that it doesn't give the holder of the binding any access to that environment beyond what the function itself provides. so you can use shared bindings to safely share valuable resources - just like Frances did with hir output handle earlier.
+
+- _using_ a shared binding entails a certain amount of risk. make sure you trust the persyn you got it from!
 
