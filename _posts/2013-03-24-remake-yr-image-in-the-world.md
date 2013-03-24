@@ -1,10 +1,10 @@
 ---
 layout: post
 category: help
-q: remake the world in yr image
+q: remake yr image in the world
 ---
 
-remake the world in yr image
+remake yr image in the world
 ----------------------------
 
 player and object attributes like name, description, and password are just bindings in objects' lisp environments, and they can be modified using primitives like `set!` and `define` (like in Scheme). by default, wisp expressions entered by a player are evaluated in that player's environment, but other environments can be entered using the `as` special form, or the `@<name> <expr>` toplevel syntax (more on that later).
