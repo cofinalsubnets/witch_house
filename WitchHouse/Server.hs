@@ -77,7 +77,7 @@ connectMsg :: String
 connectMsg = "witch_house " ++ version
 
 welcomeMsg :: String -> String
-welcomeMsg n = "Welcome, " ++ n ++ "."
+welcomeMsg n = "Welcome, " ++ n ++ ".\nType `help' for help."
 
 -- | Handle a login request. The request will fail if someone is already
 -- logged in with the given name; otherwise, the client will be attached to
