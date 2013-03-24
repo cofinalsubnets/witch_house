@@ -425,7 +425,10 @@ len_fail n l = Left $ "Wrong number of arguments: " ++ show (length l) ++ " for 
 envGraph :: IO (Graph, (Vertex -> ((), Int, [Int])), (Int -> Maybe Vertex))
 envGraph = do
   frames <- H.toList env
-  return . graphFromEdges $ map (\(n,(bs,_)) -> ((), n, map frameNo $ filter (\s -> tc_func s || tc_macro s) (M.elems bs))) frames
+  return . graphFromEdges $ map es frames
+  where es (n,(bs,p)) = ((), n, parent p ++ refs (M.elems bs))
+        parent = maybe [] return
+        refs = map frameNo . filter (\s -> tc_func s || tc_macro s)
 
 -- | General case naive garbage collection. Drops all frames not reachable
 -- from toplevel.
