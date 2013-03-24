@@ -6,7 +6,7 @@ title: witch_house - faq
 <div id="faq_box">
   <ul id="faqs">
     {% for help in site.categories.help %}
-    <li><a href="{{ help.url }}">{{ help.q }}</a></li>
+    <li><a href="{{ site.url}}{{ help.url }}">{{ help.q }}</a></li>
     {% endfor %}
   </ul>
 </div>
