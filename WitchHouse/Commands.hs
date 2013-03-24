@@ -99,11 +99,11 @@ quit (f,c) = case handle f of
                return (f,c)
 
 goes :: String -> Command
-goes dir w = do
-  res <- invoke "go" [Sstring dir] w
-  case res of
-    Left err -> notify err w
-    Right v -> notify (show v) w
+goes dir w = case go dir w of
+  Left err -> notify err w
+  Right w' -> do notifyExcept ((name $ focus w) ++ " goes " ++ dir ++ ".") w
+                 notifyExcept ((name $ focus w) ++ " arrives.") w'
+                 send "look" w'
 
 enters :: String -> Command
 enters n w = case enter (matchName n) w of

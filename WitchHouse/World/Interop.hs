@@ -42,14 +42,6 @@ bootstrap = do
     defs = unlines $
       [ "(begin"
 
-      , "  (define (enter n)"
-      , "    ((lambda (dest)"
-      , "       (tell-room \"\" (cat *name* \" enters \" dest \".\") *self*)"
-      , "       (set! *self* (w-dn *self* dest))"
-      , "       (tell-room \"\" (cat *name* \" enters.\") *self*)"
-      , "       (look))"
-      , "     (if (world? n) (name n) n)))"
-
       , "  (define (take w)"
       , "    (enter"
       , "      (tell-room (cat \"You take \" *name* \".\")"
@@ -98,13 +90,6 @@ bootstrap = do
       
       , "  (define (examine w)"
       , "    (tell w *desc*))"
-
-      , "  (define (go dir)"
-      , "    (define old-self *self*)"
-      , "    (set! *self* (go-dir dir *self*))"
-      , "    (tell-room \"\" (cat *name* \" goes \" dir \".\") old-self)"
-      , "    (tell-room \"\" (cat *name* \" arrives.\") *self*)"
-      , "    (look))"
 
       , ")"
       ]
