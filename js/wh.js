@@ -1,3 +1,5 @@
+---
+---
 $(document).ready(function() {
   window.ws = createSocket();
 
@@ -36,8 +38,7 @@ $(document).ready(function() {
 });
 
 function createSocket() {
-  ws_url = "ws://ec2-54-244-180-87.us-west-2.compute.amazonaws.com";
-  var s = new WebSocket(ws_url);
+  var s = new WebSocket("{{ site.ws_url}}");
   s.onmessage = function (msg) { messages.show_message(msg.data.replace(/\n/g,"<br />")); };
   s.onclose = function (msg) { messages.show_message("### connection closed ###"); };
   return s;
