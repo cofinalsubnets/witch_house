@@ -8,14 +8,14 @@ very simple little boy
 
 wisp is the tiny lisp at the heart of `witch_house`. it's not exactly right to say it's a scripting language - aside from a few toplevel commands, wisp is the language `witch_house` is played _in_. other articles go into greater depth on precisely what that means - this article is meant to serve as a brief introduction to the language for people who may be new to lisps, or to programming in general.
 
-`lisp' refers to a large family of programming languages with a decades-long history. lisps are often categorized as functional languages, although some influential dialects (eg, common lisp) can be written in a very object-oriented style, and some very object-oriented languages (eg, ruby) are heavily influenced by lisp.
+\`lisp' refers to a large family of programming languages with a decades-long history. lisps are often categorized as functional languages, although some influential dialects (eg, common lisp) can be written in a very object-oriented style, and some very object-oriented languages (eg, ruby) are heavily influenced by lisp.
 
 if that means nothing to you, don't worry. the salient point here is that, as in all functional languages, wisp allows you to manipulate functions as data. and like many lisps, wisp allows you to manipulate more general _code_ as data using a facility called macros, which we'll talk about more later.
 
 lisps also share a (mostly) similar syntax. there are basically three kinds of expressions:
 - self-evaluating expressions like numbers, strings, and the boolean values `#t` and `#f` (true and false);
 - symbols, which may or may not be bound to a value in a given environment, and which evaluate to that value if it exists (and cause an error if it doesn't);
-- s-expressions, which are lists in which the first element (the `car') is assumed to evaluate to an applicable value (a function, macro, or special form), to which the remaining elements (the `cdr') are passed as arguments.
+- s-expressions, which are lists in which the first element (the \`car') is assumed to evaluate to an applicable value (a function, macro, or special form), to which the remaining elements (the \`cdr') are passed as arguments.
 
 variations exist between dialects (for example, common lisp uses a separate namespace for functions), but the above is true enough when it comes to wisp. when you're writing wisp in `witch_house`, you'll generally be writing s-expressions, so here are some examples:
 
@@ -36,7 +36,7 @@ what happens if we call this function?
 
 {% highlight scheme %}
     ((const id) 0) ;; (lambda (n) n) ;; 0
-{% highlight %}
+{% endhighlight %}
 
 the function ignored its argument (0) and returned the identity function - a function that takes one argument (n) and returns that argument unchanged. in this case the frame number is 0, which means `id` is a value bound at toplevel.
 
@@ -54,7 +54,7 @@ this expression uses the `define` special form, which creates a binding with the
     (cat "the bbq seitan was " ((make-infixer "\"" "\"") "delicious")) ;; "the bbq seitan was \"delicious\""
 {% endhighlight %}
 
-the last example calls an anonymous function to generate a string (we did the same thing, to less sarcastic effect, in the `(const id)` example above). also notice the backslashes - double-quotes are wisp's string delimiters, so in order to include them in  a string, you need to `escape' them using a backslash. this tells the interpreter that the double-quote is just an ordinary character, not the end of the string. you can also use escape sequences to include line breaks ("\n") and tabs
+the last example calls an anonymous function to generate a string (we did the same thing, to less sarcastic effect, in the `(const id)` example above). also notice the backslashes - double-quotes are wisp's string delimiters, so in order to include them in  a string, you need to \`escape' them using a backslash. this tells the interpreter that the double-quote is just an ordinary character, not the end of the string. you can also use escape sequences to include line breaks ("\n") and tabs
 ("\t") in a string. to include a literal backslash, just type "\\".
 
 we used the `define` special form above. a special form is a procedure that elicits some unique, low-level response from the interpreter that you couldn't get using functions alone. other special forms include:
@@ -72,11 +72,11 @@ we used the `define` special form above. a special form is a procedure that elic
 
 - `macro`, and the related forms `quasiquote` and `splice`. macros, which we mentioned earlier, are a means of `reconfiguring' data into executable code, but their use is a little bit subtle and we won't go into detail here. it's worth mentioning, though, that like `quote`, `quasiquote` and `splice` have syntax that's specially recognized by the parser: the backquote (\` - on the same key as \~ on US keyboards) and comma (,) respectively. also worth a mention is that without any `splice`s, `quasiquote` functions exactly like `quote`; and that attempting to use `splice` outside of a `quasiquote`d expression is illegal and will raise an error.
 
-one more word on `if`: in wisp, all values other than `#f` are `true' in a boolean context. so for example, `(if "yes" "no" "maybe")` is perfectly valid, and evaluates to `"no"`.
+one more word on `if`: in wisp, all values other than `#f` are \`true' in a boolean context. so for example, `(if "yes" "no" "maybe")` is perfectly valid, and evaluates to `"no"`.
 
 let's cover a few more useful functions before closing this article:
 
-- `list` takes any number of arguments, evaluates them, and returns a list containing them. this is really necessary - you can't simply type `(1 2 3)` into the interpreter and get a list back, since the interpreter will attempt to execute the (non-existent) function `1' and raise an error. in this case you could quote the list - `'(1 2 3)` - but what if the list contained expressions you wanted to be evaluated? `'(1 2 (+ 1 2))`, for example, evaluates to the list `(1 2 (+ 1 2))`.
+- `list` takes any number of arguments, evaluates them, and returns a list containing them. this is really necessary - you can't simply type `(1 2 3)` into the interpreter and get a list back, since the interpreter will attempt to execute the (non-existent) function `1` and raise an error. in this case you could quote the list - `'(1 2 3)` - but what if the list contained expressions you wanted to be evaluated? `'(1 2 (+ 1 2))`, for example, evaluates to the list `(1 2 (+ 1 2))`.
 - `car` returns the first element of a list.
 - `cdr` returns the tail of a list - the list with the first element removed. if these function names seem obscure, that's because they are - they originally referred to CPU register locations on IBM 704 computers from the 1950s! other lisps (common lisp is particularly guilty of this) retain many other arcane names for list operations, such as `rplacd` and `nconc`.
 - `cons` takes an item and a list, and returns a list with the new item as the `car` and the old list as the `cdr`. it shares the same etymological lineage as `car` and `cdr`.
