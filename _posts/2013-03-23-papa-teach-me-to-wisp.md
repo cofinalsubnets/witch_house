@@ -15,9 +15,9 @@ for starters, player and object attributes like name, description, and password 
 so here are some progressively more complicated examples!
 
 {% highlight scheme %}
-`(set! *name* "Frances") ;; change yr name`
-`(set! *desc* "the prettiest persyn around!!") ;; change yr description`
-`(define (cry me) (tell-room me "BAWW" (cat (name me) " starts to cry. Zie obviously needs support!"))) ;; learn to free your emotions`
+(set! *name* "Frances") ;; change yr name
+(set! *desc* "the prettiest persyn around!!") ;; change yr description
+(define (cry me) (tell-room me "BAWW" (cat (name me) " starts to cry. Zie obviously needs support!"))) ;; learn to free your emotions
 {% endhighlight %}
 
 now you have a `cry` command! when you type it, other people will see: 
@@ -31,21 +31,21 @@ imagine Frances has a friend named Timmy who always keeps hir emotions bottled u
 Timmy now has a copy of Frances' `cry` function in his shared bindings. zie can make hir own `cry` function like this:
 
 {% highlight scheme %}
-`(define cry (car *shared-bindings*))`
+(define cry (car *shared-bindings*))
 {% endhighlight %}
 
 and now that `cry` is bound to a name, Timmy can take it out of hir shared bindings stack:
 
 {% highlight scheme %}
-`(set! *shared-bindings* (cdr *shared-bindings*))`
+(set! *shared-bindings* (cdr *shared-bindings*))
 {% endhighlight %}
 
 here's another fun example of what shared bindings can do:
 
 {% highlight scheme %}
-`(define *do-not-disturb* #t)`
-`(define (dnd me) (set! *do-not-disturb* (not *do-not-disturb*)))`
-`(define (tell-frances msg) (if (not *do-not-disturb*) (tell *handle* msg) "Frances doesn't want to be disturbed right now."))`
+(define *do-not-disturb* #t)
+(define (dnd me) (set! *do-not-disturb* (not *do-not-disturb*)))
+(define (tell-frances msg) (if (not *do-not-disturb*) (tell *handle* msg) "Frances doesn't want to be disturbed right now."))
 {% endhighlight %}
 
 if Frances shares `tell-frances` with other people, they'll be able to send hir private messages from anywhere, as long as zie doesn't have `*do-not-disturb*` set.
@@ -67,7 +67,7 @@ there are three ways to obtain a ref:
 once you have a ref, you can use it in an expression like:
 
 {% highlight scheme %}
-`(as frances (set! *name* "Spider Jerusalem")) ;; frances is a ref to Frances`
+(as frances (set! *name* "Spider Jerusalem")) ;; frances is a ref to Frances
 {% endhighlight %}
 
 or in a toplevel command like:
@@ -81,17 +81,17 @@ or in a toplevel command like:
 obviously you don't want to give away your own ref to just anyone. but suppose you want to give someone _temporary_ access to a ref of yours. they're understandably unwilling to give you their own ref, so how can you ensure they have access to yours only as long as you want them to? write a function and share it!
 
 {% highlight scheme %}
-`(define *revoked-refs* '())`
-`(define (revoked ref) (member ref *revoked-refs*))`
-`(define (revoke! ref) (set! *revoked-refs* (cons ref *revoked-refs*)))`
-`(define (make-revokeable-ref ref) (lambda () (if (not (revoked ref)) ref #f)))`
-`(define shareable-ref (make-revokeable-ref my-valuable-ref))`
+(define *revoked-refs* '())
+(define (revoked ref) (member ref *revoked-refs*))
+(define (revoke! ref) (set! *revoked-refs* (cons ref *revoked-refs*)))
+(define (make-revokeable-ref ref) (lambda () (if (not (revoked ref)) ref #f)))
+(define shareable-ref (make-revokeable-ref my-valuable-ref))
 {% endhighlight %}
 
 the recipient, after binding the `shareable-ref` in their own namespace, can use it like this:
 
 {% highlight scheme %}
-`(as (shareable-ref) (cause-mischief))`
+(as (shareable-ref) (cause-mischief))
 {% endhighlight %}
 
 but only for as long as you permit it.
