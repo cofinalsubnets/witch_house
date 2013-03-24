@@ -296,7 +296,7 @@ p_apply sv vs i
 
                       -- only keep the frame if there's a chance we'll need it later
                       case res of Left _ -> dropFrame n >> return res
-                                  Right r  -> when (not $ tc_macro r || tc_func r) (dropFrame n) >> return res
+                                  Right r  -> when (not $ tc_macro r || tc_func r || tc_list r) (dropFrame n) >> return res
 
 
 p_eval :: Sval
@@ -428,7 +428,9 @@ envGraph = do
   return . graphFromEdges $ map es frames
   where es (n,(bs,p)) = ((), n, parent p ++ refs (M.elems bs))
         parent = maybe [] return
-        refs = map frameNo . filter (\s -> tc_func s || tc_macro s)
+        refs = map frameNo . getRefs . Slist
+        getRefs (Slist l) = filter (\o -> tc_func o || tc_macro o) l ++ concatMap getRefs l
+        getRefs _ = []
 
 -- | General case naive garbage collection. Drops all frames not reachable
 -- from toplevel.
