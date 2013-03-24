@@ -5,6 +5,7 @@
 }
 
 body {
+  font-family: monospace;
   color: #0d3;
   background: #000;
 }
@@ -17,7 +18,6 @@ body {
 }
 
 .terminal {
-  font-family: monospace;
   background-color: #000600;
   border-width: 1px;
   border-style: solid;
@@ -34,7 +34,6 @@ body {
 }
 
 #wh_title {
-  font-family: monospace;
   width: 50%;
   display: block;
   padding-bottom: 10px;
