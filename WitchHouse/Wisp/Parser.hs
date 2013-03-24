@@ -38,8 +38,15 @@ wisp = optional whitespace *> expr <* optional whitespace
 
     atom = str <|> number <|> symbol <|> true <|> false
 
+    escaped c r = try $ string ['\\',c] >> return r
+
     str = Sstring `fmap` (char '"' *> many stringContents <* char '"')
-      where stringContents = try (string "\\\"" >> return '"') <|> noneOf "\""
+      where stringContents =  escaped '"' '"'
+                          <|> escaped 'n' '\n'
+                          <|> escaped 'r' '\r'
+                          <|> escaped 't' '\t'
+                          <|> escaped '\\' '\\'
+                          <|> noneOf "\\\""
 
     symbol = (Ssym . pack) `fmap` ((:) <$> symC <*> many (digit <|> symC))
       where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:")
