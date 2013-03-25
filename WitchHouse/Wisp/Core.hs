@@ -80,7 +80,7 @@ bindings = M.fromList $
   ]
 
 -- PRIMITIVE FN COMBINATORS
--- | variadic operations. division is handled separately.
+-- | variadic math operations. division is handled as a special case.
 math :: (forall a. Num a => a -> a -> a) -> Sval
 math op = Sprim $ tc (repeat tc_num) $ some _math
   where _math (h:t) _ = return $ foldM (s_num_op op) h t
@@ -169,15 +169,16 @@ apply sv vs i
         return . Left $ "ERROR: apply: bad variadic parameter syntax: " ++ show (params sv)
       | length pos > length sup || null var && length pos < length sup =
         return . Left $ "ERROR: wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos)
-      | otherwise = let posV = pos `zip` vs
-                        varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
-                    in do
-                      n <- pushFrame (M.fromList (varV ++ posV), Just $ frameNo sv)
-                      res <- eval (Slist ((sym_begin):(body sv))) n
+      | otherwise = do
+        let posV = pos `zip` vs
+            varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
+        n <- pushFrame (M.fromList (varV ++ posV), Just $ frameNo sv)
+        res <- eval (Slist ((sym_begin):(body sv))) n
 
-                      -- only keep the frame if there's a chance we'll need it later
-                      case res of Left _ -> dropFrame n >> return res
-                                  Right r  -> when (not $ tc_macro r || tc_func r || tc_list r) (dropFrame n) >> return res
+        -- only keep the frame if there's a chance we'll need it later
+        case res of Left _ -> dropFrame n
+                    Right r  -> when (not $ any ($r) [tc_macro, tc_func, tc_list]) (dropFrame n)
+        return res
 
 
 eval :: Sval -> Int -> IO (Either String Sval)
@@ -202,16 +203,15 @@ eval v f
         Left err -> return $ Left err
         Right op' -> if not $ tc_macro op' then do
                        vals <- evalList vs f
-                       case vals of
-                         Right vals' -> apply op' vals' f
-                         Left err -> return $ Left err
+                       case vals of Right vals' -> apply op' vals' f
+                                    Left err -> return $ Left err
                      else do expn <- apply op' vs f
                              -- this is what less insane lisps call `macroexpansion time.' haha.
                              case expn of Left err -> return $ Left err
                                           Right xv -> eval xv f
 
 evalList :: [Sval] -> Int -> IO (Either String [Sval])
-evalList vs f = liftM sequence $ mapM (\o -> eval o f) vs
+evalList vs f = liftM sequence $ mapM (flip eval f) vs
 
 -- SPECIAL FORMS
 
@@ -239,29 +239,23 @@ f_as = lc 2 $ \[k,x] i -> do
              Right v -> return . Left $ "ERROR: as: bad type (expected ref): " ++ show v
              err -> return err
 
-f_if vs f = case vs of
-  [cond, y, n] -> do
-    v <- eval cond f
-    case v of Left err -> return $ Left err
-              Right v' -> case v' of (Sbool False) -> eval n f
-                                     _             -> eval y f
-  _ -> return . Left $ "ERROR: if: bad conditional syntax: " ++ show (Slist $ sym_if:vs)
+f_if = lc 3 $ \[cond,y,n] f -> do
+  v <- eval cond f
+  case v of Left err -> return $ Left err
+            Right v' -> case v' of (Sbool False) -> eval n f
+                                   _             -> eval y f
 
 f_begin sv f = foldl (>>) (return . return $ Slist []) $ map (\o -> eval o f) sv
 
 f_quote = lc 1 $ \[v] _ -> return $ Right v
 
-f_quasiq = lc 1 $ \[v] f -> case v of
-  Slist l -> spliceL l f
-  sv -> return $ Right sv
+f_quasiq = lc 1 $ \[v] f -> case v of Slist l -> spliceL l f
+                                      sv -> return $ Right sv
   where
-    spliceL l f = do rs <- mapM (splice f) l
-                     return $ Slist `fmap` sequence rs
-    splice f sv = case sv of
-      Slist l@[s, v] -> if s == sym_splice then eval v f
-                        else spliceL l f
-      Slist l -> spliceL l f
-      v -> return . return $ v
+    spliceL l f = mapM (splice f) l >>= return . fmap Slist . sequence
+    splice f (Slist l@[s,v]) = if s == sym_splice then eval v f else spliceL l f
+    splice f (Slist l) = spliceL l f
+    splice _ v = return $ return v
 
 f_splice _ _ = return $ Left "ERROR: splice: splice outside of quasiquoted expression"
 
@@ -291,29 +285,22 @@ f_set = lc 2 $ tc [tc_sym] $ \[Ssym s, xp] f -> do
         Just n -> bind n s v >> return xv
     Left e -> return $ Left e
 
-f_unset vs f = case vs of
-  [Ssym s] -> do
-    f' <- findBinding s f
-    case f' of
-      Nothing -> return . Left $ "ERROR: unset!: free or immutable variable: " ++ unpack s
-      Just n -> do (b,_) <- getFrame n
-                   let v = b M.! s
-                   unbind n s
-                   return $ Right v
-  _ -> return $ Left "ERROR: unset!: bad undefinition syntax"
+f_unset = lc 1 $ tc [tc_sym] $ \[Ssym s] f -> do
+  f' <- findBinding s f
+  case f' of Nothing -> return . Left $ "ERROR: unset!: free or immutable variable: " ++ unpack s
+             Just n -> do (b,_) <- getFrame n
+                          let v = b M.! s
+                          unbind n s
+                          return $ Right v
 
 findBinding :: ByteString -> Int -> IO (Maybe Int)
 findBinding nm n
   | n == toplevel = return Nothing
   | otherwise = do (bs,n) <- getFrame n
-                   case n of
-                     Just n' -> if nm `M.member` bs then return n
-                                else findBinding nm n'
-                     Nothing -> return Nothing
-
+                   case n of Just n' -> if nm `M.member` bs then return n else findBinding nm n'
+                             Nothing -> return Nothing
 
 -- some bytestring constants
-sym_if     = Ssym $ pack "if"
 sym_begin  = Ssym $ pack "begin"
 sym_lambda = Ssym $ pack "lambda"
 sym_splice = Ssym $ pack "splice"
