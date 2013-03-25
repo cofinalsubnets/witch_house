@@ -86,7 +86,7 @@ send actn w = do
 
 bindings :: Command
 bindings w = do
-  (m,_) <- getFrame (objId $ focus w)
+  Just (m,_) <- getFrame (objId $ focus w)
   notify (show m) w
 
 
@@ -122,7 +122,7 @@ makes n w = do
 addRef :: World -> Int -> IO ()
 addRef (Obj{objId = f},_) i = do
   let refsym = pack "*refs*"
-  (bs,_) <- getFrame f
+  Just (bs,_) <- getFrame f
   bind f refsym $ case M.lookup refsym bs of
     Just (Slist l) -> Slist $ (Sref i):l
     _              -> Slist [Sref i]
@@ -130,14 +130,14 @@ addRef (Obj{objId = f},_) i = do
 addBind :: World -> Sval -> IO ()
 addBind (Obj{objId = f},_) v = do
   let bindsym = pack "*shared-bindings*"
-  (bs,_) <- getFrame f
+  Just (bs,_) <- getFrame f
   bind f bindsym $ case M.lookup bindsym bs of
     Just (Slist l) -> Slist $ v:l
     _              -> Slist [v]
 
 hasRef :: World -> World -> Bool
 (Obj{objId = f1},_) `hasRef` (Obj{objId = f2},_) = unsafePerformIO $ do
-  (bs,_) <- getFrame f1
+  Just (bs,_) <- getFrame f1
   case M.lookup (pack "*refs*") bs of
     Just (Slist l) -> return $ Sref f2 `elem` l
     _ -> return False
@@ -146,7 +146,7 @@ shareBinding :: String -> String -> Command
 shareBinding b t w = case find (matchName t) Location w of
   Left err -> notify err w
   Right t' -> do
-    (bs,_) <- getFrame (objId $ focus w)
+    Just (bs,_) <- getFrame (objId $ focus w)
     case M.lookup (pack b) bs of
       Nothing -> notify ("You don't have a binding called " ++ b ++ ".") w
       Just v -> do addBind t' v
@@ -166,7 +166,7 @@ recycle n w = case find (matchName n) Self w of
 
 reset :: Command
 reset w@((Obj{objId = f}),_) = do
-  (bs,_) <- getFrame f
+  Just (bs,_) <- getFrame f
   let defs = M.keys bs \\ [pack "*name*", pack "*desc*", pack "*password*", pack "*handle*"]
   mapM_ (unbind f) defs
   notify "Bindings reset." w

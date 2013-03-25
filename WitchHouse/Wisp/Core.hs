@@ -23,6 +23,7 @@ import qualified Data.Map as M
 import qualified Data.HashTable.IO as H
 import Data.ByteString.Char8 (pack, unpack)
 import Data.ByteString (ByteString)
+import System.IO
 import System.IO.Unsafe
 import System.Random
 
@@ -81,10 +82,8 @@ env = unsafePerformIO $ do
         Left err -> return $ Left err
 
 
-getFrame :: Int -> IO Frame
-getFrame = liftM g . H.lookup env
-  where g (Just n) = n
-        g Nothing = error "getFrame: missing frame"
+getFrame :: Int -> IO (Maybe Frame)
+getFrame = H.lookup env
 
 dropFrame :: Int -> IO ()
 dropFrame = H.delete env
@@ -95,21 +94,30 @@ pushFrame f = do
   H.insert env u f
   return u
 
+warn :: String -> IO ()
+warn = hPutStrLn stderr . ("WARNING: " ++)
+
 bind :: Int -> ByteString -> Sval -> IO ()
 bind u k v = do
-  (bs,p) <- getFrame u
-  H.insert env u (M.insert k v bs, p)
+  frame <- getFrame u
+  case frame of Just (bs,p) -> H.insert env u (M.insert k v bs, p)
+                Nothing -> warn $ "attempted to bind value " ++ show v ++ " to " ++ unpack k ++ " in non-existent frame: " ++ show u
 
 unbind :: Int -> ByteString -> IO ()
 unbind u k = do
-  (bs,p) <- getFrame u
-  H.insert env u (M.delete k bs, p)
+  frame <- getFrame u
+  case frame of Just (bs,p) -> H.insert env u (M.delete k bs, p)
+                Nothing -> warn $ "attempted to unbind " ++ unpack k ++ " in non-existent frame: " ++ show u
 
 envLookup :: ByteString -> Maybe Int -> IO (Either String Sval)
 envLookup s Nothing = return . Left $ "Unable to resolve symbol: " ++ unpack s
 envLookup s (Just i) = do
-  (binds,nxt) <- getFrame i
-  case M.lookup s binds of Nothing -> envLookup s nxt
+  frame <- getFrame i
+  case frame of
+   Nothing -> do warn $ "attempted lookup on " ++ unpack s ++ " in non-existent frame: " ++ show i
+                 return . Left $ "Unable to resolve symbol: " ++ unpack s
+   Just (binds,nxt) -> case M.lookup s binds of
+                           Nothing -> envLookup s nxt
                            Just v -> return $ Right v
 
 
@@ -135,19 +143,19 @@ f_quasiq = Sform $ \vs f -> case vs of
       v -> return . return $ v
 
 f_splice :: Sval
-f_splice = Sform $ \_ _ -> return $ Left "ERROR: Splice outside of quasiquoted expression."
+f_splice = Sform $ \_ _ -> return $ Left "ERROR: splice: splice outside of quasiquoted expression"
 
 f_lambda :: Sval
 f_lambda = Sform $ \vs f -> return $
   case vs of (Slist ps):svs -> let ps' = map (\(Ssym s) -> s) ps
                                in return $ Sfunc ps' svs f
-             _ -> Left "Malformed lambda exp"
+             _ -> Left "ERROR: lambda: malformed lambda exp"
 
 f_macro :: Sval
 f_macro = Sform $ \vs f -> return $
   case vs of (Slist ps):svs -> let ps' = map (\(Ssym s) -> s) ps
                                in return $ Smacro ps' svs f
-             _ -> Left "Malformed macro"
+             _ -> Left "ERROR: macro: malformed macro"
 
 f_define :: Sval
 f_define = Sform $ \vs f -> case vs of
@@ -157,7 +165,7 @@ f_define = Sform $ \vs f -> case vs of
       Right v -> bind f s v >> return (Right v)
       Left e -> return $ Left e
   (Slist (h:ss)):xps -> p_apply f_define [h, Slist ([sym_lambda, Slist ss] ++ xps)] f
-  _ -> return $ Left "Bad definition syntax"
+  _ -> return $ Left "ERROR: define: bad definition syntax"
 
 
 f_set :: Sval
@@ -168,28 +176,31 @@ f_set = Sform $ \vs f -> case vs of
       Right v -> do
         f' <- findBinding s f
         case f' of
-          Nothing -> return . Left $ "Free or immutable variable: " ++ unpack s
+          Nothing -> return . Left $ "ERROR: set!: free or immutable variable: " ++ unpack s
           Just n -> bind n s v >> return xv
       Left e -> return $ Left e
-  _ -> return $ Left "Bad mutation syntax"
+  _ -> return $ Left "ERROR: set!: bad mutation syntax"
 
 f_unset :: Sval
 f_unset = Sform $ \vs f -> case vs of
   [Ssym s] -> do
     f' <- findBinding s f
     case f' of
-      Nothing -> return . Left $ "Free or immutable variable: " ++ unpack s
-      Just n -> do (b,_) <- getFrame n
+      Nothing -> return . Left $ "ERROR: unset!: free or immutable variable: " ++ unpack s
+      Just n -> do Just (b,_) <- getFrame n
                    let v = b M.! s
                    unbind n s
                    return $ Right v
-  _ -> return $ Left "Bad undefinition syntax"
+  _ -> return $ Left "ERROR: unset!: bad undefinition syntax"
 
 findBinding :: ByteString -> Int -> IO (Maybe Int)
 findBinding nm n
   | n == toplevel = return Nothing
-  | otherwise = do (bs, Just n') <- getFrame n
-                   if nm `M.member` bs then return (Just n) else findBinding nm n'
+  | otherwise = do f <- getFrame n
+                   case f of Just (bs, Just n') -> if nm `M.member` bs then return (Just n) else findBinding nm n'
+                             Just (_, Nothing) -> return Nothing
+                             Nothing -> do warn $ "attempted lookup of " ++ unpack nm ++ " in non-existent frame: " ++ show n
+                                           return Nothing
 
 s_num_op :: (forall a. Num a => a -> a -> a) -> Sval -> Sval -> Either String Sval
 s_num_op (?) s1 s2 = case (s1,s2) of
@@ -197,20 +208,21 @@ s_num_op (?) s1 s2 = case (s1,s2) of
   (Sfixn a, Sfloat b)  -> Right . Sfloat $ fromIntegral a ? b
   (Sfloat a, Sfixn b)  -> Right . Sfloat $ a ? fromIntegral b
   (Sfloat a, Sfloat b) -> Right . Sfloat $ a ? b
-  _ -> Left $ "Bad types: " ++ show (Slist [s1,s2])
+  _ -> Left $ "ERROR: bad type (expected numeric): " ++ show (Slist [s1,s2])
 
 s_div :: Sval -> Sval -> Either String Sval
 s_div s1 s2 = case (s1,s2) of
-  (Sfixn _,  Sfixn 0) -> Left "Divide by zero"
-  (Sfloat _, Sfixn 0) -> Left "Divide by zero"
-  (Sfixn _,  Sfloat 0) -> Left "Divide by zero"
-  (Sfloat _, Sfloat 0) -> Left "Divide by zero"
+  (Sfixn _,  Sfixn 0) -> db0
+  (Sfloat _, Sfixn 0) -> db0
+  (Sfixn _,  Sfloat 0) -> db0
+  (Sfloat _, Sfloat 0) -> db0
   (Sfixn a, Sfixn b) -> if a `rem` b == 0 then Right . Sfixn $ a `quot` b
                         else Right . Sfloat $ fromIntegral a / fromIntegral b
   (Sfixn a, Sfloat b) -> Right . Sfloat $ fromIntegral a / b
   (Sfloat a, Sfixn b) -> Right . Sfloat $ a / fromIntegral b
   (Sfloat a, Sfloat b) -> Right . Sfloat $ a / b
-  _ -> Left $ "Bad types: " ++ show (Slist [s1,s2])
+  _ -> Left $ "ERROR: /: bad type (expected numeric): " ++ show (Slist [s1,s2])
+  where db0 = Left "ERROR: /: divide by zero"
 
 p_div :: Sval
 p_div = Sprim $ \vs _ -> return $ do
@@ -222,13 +234,14 @@ p_int :: Sval
 p_int = Sprim $ \vs _ -> return $ case vs of
   [Sfixn n] -> Right $ Sfixn n
   [Sfloat f] -> Right . Sfixn $ floor f
-  [a] -> Left $ "Bad type (expected numeric): " ++ show a
+  [a] -> Left $ "ERROR: int: bad type (expected numeric): " ++ show a
   _ -> len_fail 1 vs
 
 p_err :: Sval
 p_err = Sprim $ \err _ -> return $ case err of
   [Sstring e] -> Left ("ERROR: "++e)
-  _ -> Left $ "(error) Bad arguments: " ++ show err
+  [t] -> Left $ "ERROR: error: bad type (expected string): " ++ show t
+  _ -> len_fail 1 err
 
 p_cat :: Sval
 p_cat = Sprim $ \vs _ -> return $ do
@@ -238,13 +251,13 @@ p_cat = Sprim $ \vs _ -> return $ do
 p_null :: Sval
 p_null = Sprim $ \vs _ -> return $ case vs of
   [Slist l] -> return . Sbool $ null l
-  [v] -> Left $ "Bad type (expected list): " ++ show v
+  [v] -> Left $ "ERROR: null: bad type (expected list): " ++ show v
   _ -> len_fail 1 vs
 
 p_cons :: Sval
 p_cons = Sprim $ \vs _ -> return $ case vs of
   [s,Slist l] -> Right $ Slist (s:l)
-  [_,l] -> Left $ "Bad type (expected list): " ++ show l
+  [_,l] -> Left $ "ERROR: cons: bad type (expected list): " ++ show l
   _ -> len_fail 2 vs
 
 p_eq :: Sval
@@ -259,7 +272,7 @@ p_str = Sprim $ \vs _ -> return $ case vs of
 p_sym :: Sval
 p_sym = Sprim $ \vs _ -> return $ case vs of
   [Sstring s] -> Right . Ssym $ pack s
-  [v] -> Left $ "Bad type (expected string):" ++ show v
+  [v] -> Left $ "ERROR: symbol: bad type (expected string):" ++ show v
   _ -> len_fail 1 vs
 
 p_mk_self_ref :: Sval
@@ -276,8 +289,11 @@ f_as :: Sval
 f_as = Sform $ \vs i -> case vs of
   [k, x] -> do
     k' <- _eval k i
-    case k' of Right (Sref i') -> _eval x i'
-               Right v -> return . Left $ "Bad type (expected ref): " ++ show v
+    case k' of Right (Sref i') -> do
+                 f <- H.lookup env i'
+                 case f of Just _ -> _eval x i'
+                           Nothing -> return . Left $ "ERROR: as: bad frame identifier"
+               Right v -> return . Left $ "ERROR: as: bad type (expected ref): " ++ show v
                err -> return err
   _ -> return $ len_fail 2 vs
 
@@ -288,7 +304,7 @@ f_if = Sform $ \vs f -> case vs of
     case v of Left err -> return $ Left err
               Right v' -> case v' of (Sbool False) -> _eval n f
                                      _             -> _eval y f
-  _ -> return . Left $ "if: bad conditional syntax: " ++ show (Slist $ sym_if:vs)
+  _ -> return . Left $ "ERROR: if: bad conditional syntax: " ++ show (Slist $ sym_if:vs)
 
 f_begin :: Sval
 f_begin = Sform $ \sv f -> foldl (>>) (return . return $ Slist []) $ map (\o -> _eval o f) sv
@@ -296,25 +312,25 @@ f_begin = Sform $ \sv f -> foldl (>>) (return . return $ Slist []) $ map (\o -> 
 p_arity :: Sval
 p_arity = Sprim $ \sv _ -> case sv of
   [Sfunc as _ _] -> return . Right . Sfixn . length $ let splat = bs_splat in takeWhile (\s -> s /= splat) as
-  [s] -> return . Left $ "Bad type: " ++ show s
+  [s] -> return . Left $ "ERROR: arity: bad type: " ++ show s
   as -> return $ len_fail 1 as
 
 w_apply :: Sval
 w_apply = Sprim $ \sv f -> case sv of
   [a,Slist l] -> p_apply a l f
-  _ -> return . Left $ "(apply) Bad arguments: " ++ show sv
+  _ -> return . Left $ "ERROR: apply: bad arguments: " ++ show sv
 
 -- | Function application.
 p_apply :: Sval -> [Sval] -> Int -> IO (Either String Sval)
 p_apply sv vs i
   | tc_prim sv || tc_form sv = transform sv vs i -- primitive fn application - the easy case!
   | tc_func sv || tc_macro sv = apply posArgs splat vs
-  | otherwise = return  . Left $ "Non-applicable value: " ++ show sv
+  | otherwise = return  . Left $ "ERROR: apply: non-applicable value: " ++ show sv
   where
     (posArgs, splat) = break (== bs_splat) (params sv)
     apply pos var sup
       | (not $ null var) && (not $ length var == 2) =
-          return . Left $ "Bad variadic parameter syntax: " ++ show (params sv)
+          return . Left $ "ERROR: apply: bad variadic parameter syntax: " ++ show (params sv)
       | length pos > length sup || null var && length pos < length sup =
           return $ len_fail (length pos) sup
       | otherwise = let posV = pos `zip` vs
@@ -407,10 +423,9 @@ tc_str :: Sval -> Bool
 tc_str s = case s of { Sstring _ -> True; _ -> False }
 
 tc_num :: Sval -> Bool
-tc_num (Sfixn _)  = True
-tc_num (Sfloat _) = True
-tc_num _          = False
-
+tc_num s = case s of Sfixn _  -> True
+                     Sfloat _ -> True
+                     _        -> False
 
 tc_bool :: Sval -> Bool
 tc_bool s = case s of { Sbool _ -> True; _ -> False }
@@ -445,11 +460,11 @@ tc_form s = case s of { Sform _ -> True; _ -> False }
 -- | Cause a computation in Either to fail when a (type) predicate returns
 -- false.
 tc_fail :: Show a => (a -> Bool) -> a -> Either String ()
-tc_fail p v = if p v then return () else Left $ "Bad type: " ++ show v
+tc_fail p v = if p v then return () else Left $ "ERROR: bad type: " ++ show v
 
 -- | Generate a generic `wrong number of arguments' error.
 len_fail :: Int -> [a] -> Either String b
-len_fail n l = Left $ "Wrong number of arguments: " ++ show (length l) ++ " for " ++ show n
+len_fail n l = Left $ "ERROR: wrong number of arguments: " ++ show (length l) ++ " for " ++ show n
 
 {- GARBAGE COLLECTION -}
 
