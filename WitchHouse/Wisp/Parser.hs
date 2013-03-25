@@ -51,9 +51,13 @@ wisp = optional whitespace *> expr <* optional whitespace
     symbol = (Ssym . pack) `fmap` ((:) <$> symC <*> many (digit <|> symC))
       where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:")
 
-    number = (Snum . read) `fmap` (try neg <|> pos)
+    number =  (Sfloat . read) `fmap` try dec
+          <|> (Sfixn  . read) `fmap` neg
+          <|> (Sfixn  . read) `fmap` pos
+
       where pos = many1 digit
             neg = (:) <$> char '-' <*> pos
+            dec = (++) <$> (pos <|> neg) <*> ((:) <$> char '.' <*> pos)
 
     true = Sbool `fmap` (try (string "#t") >> return True)
     false = Sbool `fmap` (try (string "#f") >> return False)

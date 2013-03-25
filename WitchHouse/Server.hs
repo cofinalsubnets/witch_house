@@ -2,8 +2,12 @@ module WitchHouse.Server (startServer) where
 
 import Control.Monad
 import Control.Concurrent
+
 import Data.Time
+import Data.ByteString.Char8 (pack)
+
 import Network
+
 import System.IO
 import System.Exit
 import System.Locale (defaultTimeLocale)
@@ -14,9 +18,7 @@ import WitchHouse.Types
 import WitchHouse.Commands
 import WitchHouse.Version
 import WitchHouse.Wisp
-import Data.ByteString.Char8 (pack)
 import WitchHouse.Persistence
-
 
 startServer :: Options -> IO ()
 startServer opts = do
@@ -24,13 +26,14 @@ startServer opts = do
   mw <- newMVar (initialState opts)
   sock <- listenOn $ PortNumber (fromIntegral . portNo $ opts)
 
-  logger V1 $ "Listening on port " ++ show (portNo opts)
 
   forkIO $ garbageCollect mw
 
   when (persistent opts) $ do
     forkIO $ persist mw (autosave opts) (dbPath opts) logger
     return ()
+
+  logger V1 $ "Listening on port " ++ show (portNo opts)
 
   forever $ do
     (h,hn,p) <- accept sock
@@ -41,87 +44,7 @@ startServer opts = do
     hSetNewlineMode h universalNewlineMode
 
     -- Start the user session.
-    forkFinally (session h mw) (\_ -> logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p)
-
-garbageCollect :: MVar World -> IO ()
-garbageCollect mw = forever $ do
-  threadDelay 300000000
-  w <- takeMVar mw
-  gcW w
-  putMVar mw w
-
-persist :: MVar World -> Int -> FilePath -> Logger -> IO ()
-persist mw i f l = do
-  threadDelay $ 1000000 * i
-  l V2 $ "Saving world state to "++f++" ..."
-  w <- readMVar mw
-  conn <- connect f
-  saveWorld w conn
-  disconnect conn
-  persist mw i f l
-
-session :: Handle -> MVar World -> IO ()
-session h mw = do
-  client <- login h mw -- 1 min. timeout for login
-  forever $ do
-    hIsClosed h >>= \stop -> when stop exitSuccess
-    c <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
-    modifyMVar_ mw (return . (find' (client ==) Global) >=> handleCommand c)
-
-  where
-    handleCommand c = case c of Nothing -> parseCommand "quit"
-                                Just "" -> return
-                                Just c' -> parseCommand c'
-
-connectMsg :: String
-connectMsg = "witch_house " ++ version
-
-welcomeMsg :: String -> String
-welcomeMsg n = "Welcome, " ++ n ++ ".\nType `help' for help."
-
--- | Handle a login request. The request will fail if someone is already
--- logged in with the given name; otherwise, the client will be attached to
--- the object with the given name (one will be created if it doesn't exist).
-login :: Handle -> MVar World -> IO Obj
-login h mw = do
-  c <- timeout 60000000 $ do
-    hPutStrLn h connectMsg
-    hPutStr h "Name: " >> hFlush h
-
-    n <- hGetLine h
-    w <- readMVar mw
-    case find ((n==).name) Global w of
-      Right o -> case (password.focus) o of
-        Just pw -> do hPutStr h "Password: " >> hFlush h
-                      p <- hGetLine h
-                      if p == pw
-                        then loginExisting o
-                        else loginFailure "Incorrect password."
-        Nothing -> loginFailure "Not a player."
-
-      Left _ -> loginNew n
-
-  case c of Nothing -> exitSuccess
-            Just c' -> return c'
-
-  where
-
-    loginFailure s = do hPutStrLn h s
-                        hClose h
-                        exitSuccess
-
-    loginExisting (p,_) = do bind (objId p) (pack "*handle*") (Shandle h)
-                             hPutStrLn h (welcomeMsg $ name p) >> hFlush h
-                             return p
-
-    loginNew s = do hPutStrLn h ("Creating new node for " ++ s ++ ".") >> hFlush h
-                    hPutStr h "Password: " >> hFlush h
-                    pw <- hGetLine h
-
-                    o <- mkPlayer s pw h
-                    modifyMVar_ mw (return . zIns o . find' start Global)
-                    hPutStrLn h (welcomeMsg s) >> hFlush h
-                    return o
+    forkFinally (login h mw) . const . logger V1 $ "Disconnected: " ++ show hn ++ ":" ++ show p
 
 type Logger = Verbosity -> String -> IO ()
 
@@ -131,11 +54,77 @@ mkLogger h fmt vl vm msg = when (vl >= vm) $ do
   let timestamp = formatTime defaultTimeLocale fmt time
   hPutStrLn h $ unwords [timestamp, "|", msg]
 
+garbageCollect :: MVar World -> IO ()
+garbageCollect mw = forever $ do
+  threadDelay 300000000
+  modifyMVar_ mw $ \w -> gcW w >> return w
+
+persist :: MVar World -> Int -> FilePath -> Logger -> IO ()
+persist mw i f l = forever $ do
+  threadDelay $ 1000000 * i
+  l V2 $ "Saving world state to " ++ f ++ " ..."
+  w    <- readMVar mw
+  conn <- connect f
+  saveWorld w conn
+  disconnect conn
+
+login :: Handle -> MVar World -> IO ()
+login h mw = maybe exitSuccess (session h mw) =<< tryLogin
+  where
+
+    tryLogin = timeout 60000000 $ do
+      n <- request h $ unlines [connectMsg, "Name: "]
+      w <- readMVar mw
+
+      case find ((n==) . name) Global w of
+        Left _ -> loginNew n
+        Right o -> case password . focus $ o of
+          Nothing -> loginFailure "Not a player."
+          Just pw -> do p <- request h "Password: "
+                        if p == pw then loginExisting o
+                        else loginFailure "Incorrect password."
+
+    loginFailure s = do hPutStrLn h s
+                        hClose h
+                        exitSuccess
+
+    loginExisting (p,_) = do bind (objId p) (pack "*handle*") (Shandle h)
+                             hPutStrLn h (welcomeMsg $ name p) >> hFlush h
+                             return p
+
+    loginNew s = do pw <- request h $ "Creating new node for " ++ s ++ ".\nPassword: "
+                    o <- mkPlayer s pw h
+                    modifyMVar_ mw (return . zIns o . find' start Global)
+                    hPutStrLn h (welcomeMsg s) >> hFlush h
+                    return o
+
+request :: Handle -> String -> IO String
+request h s = hPutStrLn h s >> hFlush h >> hGetLine h
+
+connectMsg :: String
+connectMsg = "witch_house " ++ version
+
+welcomeMsg :: String -> String
+welcomeMsg n = "Welcome, " ++ n ++ ".\nType `help' for help."
+
 mkPlayer :: String -> String -> Handle -> IO Obj
 mkPlayer n pw h = do
   o <- mkObj
-  bind (objId o) (pack "*name*") (Sstring n)
+  bind (objId o) (pack "*name*")     (Sstring n)
   bind (objId o) (pack "*password*") (Sstring pw)
-  bind (objId o) (pack "*handle*") (Shandle h)
+  bind (objId o) (pack "*handle*")   (Shandle h)
   return o
+
+session :: Handle -> MVar World -> Obj -> IO ()
+session h mw client = do
+  forever $ do
+    hIsClosed h >>= \stop -> when stop exitSuccess
+    c <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
+    modifyMVar_ mw $ handleCommand c
+
+  where
+    handleCommand c = let op = case c of Nothing -> parseCommand "quit"
+                                         Just "" -> return
+                                         Just c' -> parseCommand c'
+                      in op . find' (client ==) Global
 

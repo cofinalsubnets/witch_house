@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances, UndecidableInstances #-}
 module WitchHouse.Types
 ( Options(..)
 , Verbosity(..)
@@ -6,7 +7,6 @@ module WitchHouse.Types
 , WT
 , Scope(..)
 , Sval(..)
-, Env
 , Frame
 ) where
 
@@ -15,7 +15,6 @@ import System.IO (Handle)
 import Data.Function (on)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (unpack)
-import Data.HashTable.IO (BasicHashTable)
 
 -- command line options
 data Options = Options { portNo       :: Int
@@ -40,8 +39,6 @@ data Obj = Obj { objId    :: Int
 instance Eq Obj where
   (==) = (==) `on` objId
 
--- TODO: data this shit so we can hide the implementation and give it some
--- useful instances. an Eq instance that tests equality of the focus, e.g.
 type World = (Obj, [Obj])
 
 type WT = World -> Either String World
@@ -54,47 +51,53 @@ data Scope = Self
 -- TYPES FOR WISP
 
 type Frame = (Map ByteString Sval, Maybe Int)
-type Env = BasicHashTable Int Frame
 
-type Htrans = [Sval] -> Int -> IO (Either String Sval)
 -- type for wisp values
-data Sval = Snum    Int
+data Sval = Sfixn   Int
+          | Sfloat  Float
           | Sstring String
           | Ssym    ByteString
           | Slist   [Sval]
           | Sbool   Bool
           | Sfunc   { params :: [ByteString], body :: [Sval], frameNo :: Int }
           | Smacro  { params :: [ByteString], body :: [Sval], frameNo :: Int }
-          | Sform   { transform :: Htrans }
-          | Sprim   { transform :: Htrans }
+          | Sform   { transform :: [Sval] -> Int -> IO (Either String Sval) }
+          | Sprim   { transform :: [Sval] -> Int -> IO (Either String Sval) }
           | Shandle Handle
           | Sref    Int
           | Sworld  World
 
 instance Show Sval where
-  show (Snum n)    = show n
-  show (Sstring s) = show s
-  show (Sbool b)   = if b then "#t" else "#f"
-  show (Ssym s)    = unpack s
-  show (Slist l)   = "(" ++ (unwords . map show $ l) ++ ")"
-  show (Sfunc as b f) = concat ["(lambda ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
-  show (Smacro as b f) = concat ["(macro ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
-  show (Sprim _) = "#<prim fn>"
-  show (Sworld (f,_)) = "#<obj:" ++ show (objId $ f) ++ ">"
-  show (Shandle h) = show h
-  show (Sform _) = "#<prim fm>"
-  show (Sref _)  = "#<ref>"
+  show (Sfixn n)       = show n
+  show (Sfloat n)      = show n
+  show (Sstring s)     = show s
+  show (Shandle h)     = show h
+  show (Ssym s)        = unpack s
+  show (Sbool b)       = if b then "#t" else "#f"
+  show (Slist l)       = "(" ++ (unwords . map show $ l) ++ ")"
+  show (Sfunc as b f)  = concat ["(lambda ", show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
+  show (Smacro as b f) = concat ["(macro ",  show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
+  show (Sprim _)       = "#<prim fn>"
+  show (Sworld (f,_))  = "#<obj:" ++ show (objId $ f) ++ ">"
+  show (Sform _)       = "#<prim fm>"
+  show (Sref _)        = "#<ref>"
 
 instance Eq Sval where
-  (Snum a)    == (Snum b)    = a == b
+  (Sfixn a)   == (Sfixn b)   = a == b
+  (Sfixn a)   == (Sfloat b)  = fromIntegral a == b
+  (Sfloat a)  == (Sfixn b)   = a == fromIntegral b
+  (Sfloat a)  == (Sfloat b)  = a == b
   (Sstring a) == (Sstring b) = a == b
   (Sbool a)   == (Sbool b)   = a == b
   (Ssym a)    == (Ssym b)    = a == b
   (Slist a)   == (Slist b)   = a == b
   (Shandle a) == (Shandle b) = a == b
   (Sref a)    == (Sref b)    = a == b
-  (Sworld a)  == (Sworld b)  = (objId.fst $ a) == (objId.fst $ b)
-  (Sfunc a b c) == (Sfunc d e f) = (a,b,c) == (d,e,f)
+
+  (Sworld (a,_))  == (Sworld (b,_))  = objId a == objId b
+
+  (Sfunc a b c)  == (Sfunc d e f)  = (a,b,c) == (d,e,f)
   (Smacro a b c) == (Smacro d e f) = (a,b,c) == (d,e,f)
+
   _ == _ = False
 

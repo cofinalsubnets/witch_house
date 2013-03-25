@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TupleSections, RankNTypes #-}
 -- Wisp is a special-purpose Lisp for scripting object behaviour in witch_house.
 module WitchHouse.Wisp.Core
 ( p_eval
@@ -30,7 +30,7 @@ toplevel :: Int
 toplevel = 0
 
 -- what's a functional programming language without global mutable state?
-env :: Env
+env :: H.BasicHashTable Int Frame
 env = unsafePerformIO $ do
   e <- H.new
   H.insert e toplevel (bindings, Nothing)
@@ -66,10 +66,11 @@ env = unsafePerformIO $ do
       , (pack "make-self-ref", p_mk_self_ref)
       ]
 
+    fold_num :: (forall a. Num a => a -> a -> a) -> Sval
     fold_num op = Sprim $ \vs _ -> return $ do
       tc_fail (and . map tc_num) vs
       tc_fail (not . null) vs
-      return . Snum . foldl1 op $ map (\(Snum n) -> n) vs
+      foldM (s_num_op op) (head vs) (tail vs)
 
     check p = Sprim $ \vs f -> do
       vs' <- evalList vs f
@@ -188,13 +189,33 @@ findBinding nm n
   | otherwise = do (bs, Just n') <- getFrame n
                    if nm `M.member` bs then return (Just n) else findBinding nm n'
 
+s_num_op :: (forall a. Num a => a -> a -> a) -> Sval -> Sval -> Either String Sval
+s_num_op (?) s1 s2 = case (s1,s2) of
+  (Sfixn a, Sfixn b)   -> Right . Sfixn  $ a ? b
+  (Sfixn a, Sfloat b)  -> Right . Sfloat $ fromIntegral a ? b
+  (Sfloat a, Sfixn b)  -> Right . Sfloat $ a ? fromIntegral b
+  (Sfloat a, Sfloat b) -> Right . Sfloat $ a ? b
+  _ -> Left $ "Bad types: " ++ show (Slist [s1,s2])
+
+s_div :: Sval -> Sval -> Either String Sval
+s_div s1 s2 = case (s1,s2) of
+  (Sfixn _,  Sfixn 0) -> Left "Divide by zero"
+  (Sfloat _, Sfixn 0) -> Left "Divide by zero"
+  (Sfixn _,  Sfloat 0) -> Left "Divide by zero"
+  (Sfloat _, Sfloat 0) -> Left "Divide by zero"
+  (Sfixn a, Sfixn b) -> if a `rem` b == 0 then Right . Sfixn $ a `quot` b
+                        else Right . Sfloat $ fromIntegral a / fromIntegral b
+  (Sfixn a, Sfloat b) -> Right . Sfloat $ fromIntegral a / b
+  (Sfloat a, Sfixn b) -> Right . Sfloat $ a / fromIntegral b
+  (Sfloat a, Sfloat b) -> Right . Sfloat $ a / b
+  _ -> Left $ "Bad types: " ++ show (Slist [s1,s2])
+
 
 p_div :: Sval
 p_div = Sprim $ \vs _ -> return $ do
   tc_fail (and . map tc_num) vs
   tc_fail (not . null) vs
-  if any (==Snum 0) (tail vs) then Left "ERROR: divide by zero"
-  else return . Snum . foldl1 quot $ map (\(Snum n) -> n) vs
+  foldM s_div (head vs) (tail vs)
 
 p_err :: Sval
 p_err = Sprim $ \err _ -> return $ case err of
@@ -266,7 +287,7 @@ f_begin = Sform $ \sv f -> foldl (>>) (return . return $ Slist []) $ map (\o -> 
 
 p_arity :: Sval
 p_arity = Sprim $ \sv _ -> case sv of
-  [Sfunc as _ _] -> return . Right . Snum . length $ let splat = bs_splat in takeWhile (\s -> s /= splat) as
+  [Sfunc as _ _] -> return . Right . Sfixn . length $ let splat = bs_splat in takeWhile (\s -> s /= splat) as
   [s] -> return . Left $ "Bad type: " ++ show s
   as -> return $ len_fail 1 as
 
@@ -378,7 +399,10 @@ tc_str :: Sval -> Bool
 tc_str s = case s of { Sstring _ -> True; _ -> False }
 
 tc_num :: Sval -> Bool
-tc_num s = case s of { Snum _ -> True; _ -> False }
+tc_num (Sfixn _)  = True
+tc_num (Sfloat _) = True
+tc_num _          = False
+
 
 tc_bool :: Sval -> Bool
 tc_bool s = case s of { Sbool _ -> True; _ -> False }
