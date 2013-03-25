@@ -61,7 +61,6 @@ data Sval = Sfixn   Int
           | Sbool   Bool
           | Sfunc   { params :: [ByteString], body :: [Sval], frameNo :: Int }
           | Smacro  { params :: [ByteString], body :: [Sval], frameNo :: Int }
-          | Sform   { transform :: [Sval] -> Int -> IO (Either String Sval) }
           | Sprim   { transform :: [Sval] -> Int -> IO (Either String Sval) }
           | Shandle Handle
           | Sref    Int
@@ -79,7 +78,6 @@ instance Show Sval where
   show (Smacro as b f) = concat ["(macro ",  show . Slist $ map Ssym as, " ", unwords $ map show b, ") ;; ", show f]
   show (Sprim _)       = "#<prim fn>"
   show (Sworld (f,_))  = "#<obj:" ++ show (objId $ f) ++ ">"
-  show (Sform _)       = "#<prim fm>"
   show (Sref _)        = "#<ref>"
 
 instance Eq Sval where

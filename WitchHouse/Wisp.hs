@@ -1,5 +1,5 @@
 module WitchHouse.Wisp
-( eval
+( evalWisp
 , repl
 , toplevel
 , env
@@ -9,7 +9,7 @@ module WitchHouse.Wisp
 , getFrame
 , pushFrame
 , dropFrame
-, envLookup
+, lookup
 , gc
 , gcW
 ) where
@@ -18,12 +18,15 @@ import WitchHouse.Types
 import WitchHouse.Wisp.Core
 import WitchHouse.Wisp.Parser
 import WitchHouse.Wisp.STL
+import WitchHouse.Wisp.GC
 
 import System.IO
 import System.IO.Error
 
 import Control.Exception
 import qualified Data.HashTable.IO as H
+
+import Prelude hiding (lookup)
 
 repl :: IO ()
 repl = loop `catch` eof
@@ -36,15 +39,15 @@ repl = loop `catch` eof
                                   putStrLn (show bl)
                                   loop
                     "" -> loop
-                    _ -> do res <- eval l toplevel
+                    _ -> do res <- evalWisp l toplevel
                             case res of
                               Left err -> putStr err >> loop
                               Right v -> putStr (show v) >> loop
         eof x = if isEOFError x then putStrLn "" else ioError x
 
-eval :: String -> Int -> IO (Either String Sval)
-eval s f = case parseWisp s of
-  Right sv -> do v <- p_apply p_eval [sv] f
+evalWisp :: String -> Int -> IO (Either String Sval)
+evalWisp s f = case parseWisp s of
+  Right sv -> do v <- eval sv f
                  return v
   Left err -> return . Left $ show err
 

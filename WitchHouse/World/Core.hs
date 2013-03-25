@@ -24,12 +24,12 @@ module WitchHouse.World.Core
 , handle
 ) where
 
-import Data.List hiding (find, take, drop)
+import Data.List hiding (find, take, drop, lookup)
 import qualified Data.List as List (find)
-import Prelude hiding (take, drop)
+import Prelude hiding (take, drop, lookup)
 import Control.Monad (liftM, (>=>))
 import qualified Data.Map as M
-import WitchHouse.Wisp (toplevel, pushFrame, envLookup, bind)
+import WitchHouse.Wisp (toplevel, pushFrame, lookup, bind)
 import System.IO
 import System.IO.Unsafe
 import Data.ByteString.Char8 (pack)
@@ -164,25 +164,25 @@ find' p s w = case find p s w of Right w' -> w'
 
 name :: Obj -> String
 name o = unsafePerformIO $ do
-  n <- envLookup (pack "*name*") (Just $ objId o)
+  n <- lookup (pack "*name*") (Just $ objId o)
   return $ case n of Right (Sstring s) -> s
                      _ -> ""
 
 description :: Obj -> String
 description o = unsafePerformIO $ do
-  n <- envLookup (pack "*desc*") (Just $ objId o)
+  n <- lookup (pack "*desc*") (Just $ objId o)
   return $ case n of Right (Sstring s) -> s
                      _ -> ""
 
 password :: Obj -> Maybe String
 password o = unsafePerformIO $ do
-  n <- envLookup (pack "*password*") (Just $ objId o)
+  n <- lookup (pack "*password*") (Just $ objId o)
   return $ case n of Right (Sstring s) -> Just s
                      _ -> Nothing
 
 handle :: Obj -> Maybe Handle
 handle o = unsafePerformIO $ do
-  n <- envLookup (pack "*handle*") (Just $ objId o)
+  n <- lookup (pack "*handle*") (Just $ objId o)
   return $ case n of Right (Shandle h) -> Just h
                      _ -> Nothing
 

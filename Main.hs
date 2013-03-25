@@ -13,7 +13,7 @@ import qualified WitchHouse.World as World (bootstrap)
 -- spawn additional processes as necessary to handle clients.
 main :: IO ()
 main = do
-  eval stl toplevel
+  evalWisp stl toplevel
   World.bootstrap
   getArgs >>= handleArgs >>= startServer
 
