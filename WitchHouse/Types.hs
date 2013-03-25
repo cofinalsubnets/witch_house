@@ -54,7 +54,7 @@ type Frame = (Map ByteString Sval, Maybe Int)
 
 -- type for wisp values
 data Sval = Sfixn   Int
-          | Sfloat  Float
+          | Sfloat  Double
           | Sstring String
           | Ssym    ByteString
           | Slist   [Sval]

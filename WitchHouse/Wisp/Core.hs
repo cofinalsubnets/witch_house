@@ -42,6 +42,8 @@ env = unsafePerformIO $ do
       , (pack "*",          fold_num (*)   )
       , (pack "/",          p_div          )
       , (pack "=",          p_eq           )
+      , (pack "pi",         Sfloat pi      )
+      , (pack "int",        p_int          )
       , (pack "eval",       p_eval         )
       , (pack "cat",        p_cat          )
       , (pack "apply",      w_apply        )
@@ -210,12 +212,18 @@ s_div s1 s2 = case (s1,s2) of
   (Sfloat a, Sfloat b) -> Right . Sfloat $ a / b
   _ -> Left $ "Bad types: " ++ show (Slist [s1,s2])
 
-
 p_div :: Sval
 p_div = Sprim $ \vs _ -> return $ do
   tc_fail (and . map tc_num) vs
   tc_fail (not . null) vs
   foldM s_div (head vs) (tail vs)
+
+p_int :: Sval
+p_int = Sprim $ \vs _ -> return $ case vs of
+  [Sfixn n] -> Right $ Sfixn n
+  [Sfloat f] -> Right . Sfixn $ floor f
+  [a] -> Left $ "Bad type (expected numeric): " ++ show a
+  _ -> len_fail 1 vs
 
 p_err :: Sval
 p_err = Sprim $ \err _ -> return $ case err of

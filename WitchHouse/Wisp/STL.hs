@@ -101,11 +101,22 @@ stl = unlines $
   , "  (define (id n) n)"
   , "  (define (const x) (lambda (y) x))"
 
-  , "  (define (remainder a b)"
+  , "  (define (rem a b)"
   , "    (- a (* b (/ a b))))"
+
   , "  (define (even? n)"
-  , "    (= 0 (remainder n 2)))"
+  , "    (= 0 (rem n 2)))"
+
+  , "  (define floor int)"
+
+  , "  (define (ceil n)"
+  , "    (let ((f (floor n)))"
+  , "      (if (= n f) f (inc f))))"
+
+  , "  (define (abs n) (* n (/ n n)))"
+
   , "  (define odd? (comp not even?))"
+
   
   , "  (define (append l1 l2)"
   , "    (if (null? l1)"

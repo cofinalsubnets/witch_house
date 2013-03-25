@@ -52,7 +52,7 @@ wisp = optional whitespace *> expr <* optional whitespace
       where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:")
 
     number =  (Sfloat . read) `fmap` try dec
-          <|> (Sfixn  . read) `fmap` neg
+          <|> (Sfixn  . read) `fmap` try neg
           <|> (Sfixn  . read) `fmap` pos
 
       where pos = many1 digit
