@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes, PatternGuards #-}
 module WitchHouse.Wisp.Core
 ( eval
 , apply
@@ -86,7 +86,7 @@ math op = Sprim $ tc (repeat tc_num) $ some _math
   where _math (h:t) _ = return $ foldM (s_num_op op) h t
 
 -- | predicate wrapper for variadic typechecking
-check p = Sprim $ \vs f -> evalList vs f >>= return . fmap (Sbool . all p)
+check p = Sprim $ \vs -> evalList vs >=> return . fmap (Sbool . all p)
 
 -- PRIMITIVE FUNCTIONS
 
@@ -108,22 +108,22 @@ p_int [Sfixn n]  _ = return . Right $ Sfixn n
 p_int [Sfloat f] _ = return $ Right (Sfixn $ floor f)
 
 -- | raise an error
-p_err [Sstring e] _   = return $ Left ("ERROR: "++e)
+p_err [Sstring e] _ = return $ Left ("ERROR: " ++ e)
 
 -- | string concatenation
-p_cat vs _ = return . return . Sstring $ concatMap (\(Sstring s) -> s) vs
+p_cat = const . return . return . Sstring . concatMap (\(Sstring s) -> s)
 
 -- | predicate for null list
 p_null [Slist l] _ = return . return . Sbool $ null l
 
 -- | get fn arity
-p_arity [Sfunc as _ _] _ = let splat = bs_splat in return . Right . Sfixn . length $ takeWhile (\s -> s /= splat) as
+p_arity = const . return . Right . Sfixn . length . takeWhile (/= bs_splat) . params . head
 
 -- | string -> symbol coercion
 p_sym [Sstring s] _ = return . Right . Ssym $ pack s
 
 -- | get ref for current frame
-p_mk_self_ref _ i =  return . Right $ Sref i
+p_mk_self_ref _ = return . Right . Sref
 
 -- | get new ref
 p_mk_ref _ _ = randomIO >>= return . Right . Sref
@@ -146,8 +146,8 @@ s_num_op (?) s1 s2 = case (s1,s2) of
 -- stop handling this as a gross special case maybe?
 s_div :: Sval -> Sval -> Either String Sval
 s_div s1 s2 = case (s1,s2) of
-  (_,  Sfixn 0) -> db0
-  (_,  Sfloat 0) -> db0
+  (_, Sfixn 0) -> db0
+  (_, Sfloat 0) -> db0
   (Sfixn a, Sfixn b) -> if a `rem` b == 0 then Right . Sfixn $ a `quot` b
                         else Right . Sfloat $ fromIntegral a / fromIntegral b
   (Sfixn a, Sfloat b) -> Right . Sfloat $ fromIntegral a / b
@@ -159,21 +159,24 @@ s_div s1 s2 = case (s1,s2) of
 -- | Function application.
 apply :: Sval -> [Sval] -> Int -> IO (Either String Sval)
 apply sv vs i
-  | tc_prim sv = transform sv vs i -- primitive fn application - the easy case!
-  | tc_func sv || tc_macro sv = apply posArgs splat vs
-  | otherwise = return  . Left $ "ERROR: apply: non-applicable value: " ++ show sv
+ | tc_prim sv = transform sv vs i -- primitive fn application - the easy case!
+ | tc_func sv || tc_macro sv = apply posArgs splat vs
+ | otherwise = return  . Left $ "ERROR: apply: non-applicable value: " ++ show sv
   where
     (posArgs, splat) = break (== bs_splat) (params sv)
     apply pos var sup
-      | (not $ null var) && (not $ length var == 2) =
-        return . Left $ "ERROR: apply: bad variadic parameter syntax: " ++ show (params sv)
-      | length pos > length sup || null var && length pos < length sup =
-        return . Left $ "ERROR: wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos)
+
+      | not $ null var || length var == 2
+      = return . Left $ "ERROR: apply: bad variadic parameter syntax: " ++ show (params sv)
+
+      | length pos > length sup || null var && length pos < length sup
+      = return . Left $ "ERROR: wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos)
+
       | otherwise = do
         let posV = pos `zip` vs
             varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
-        n <- pushFrame (M.fromList (varV ++ posV), Just $ frameNo sv)
-        res <- eval (Slist ((sym_begin):(body sv))) n
+        n   <- pushFrame (M.fromList (varV ++ posV), Just $ frameNo sv)
+        res <- f_begin (body sv) n
 
         -- only keep the frame if there's a chance we'll need it later
         case res of Left _ -> dropFrame n
@@ -183,32 +186,20 @@ apply sv vs i
 
 eval :: Sval -> Int -> IO (Either String Sval)
 eval v f
-  | tc_sym  v = _eval_var v
-  | special v = _apply_spec v
-  | tc_list v = _apply v
-  | otherwise = return $ return v
+ | Ssym s <- v = lookup s (Just f)
+ | Slist ((Ssym s):t) <- v, Just fn <- M.lookup s specialForms = fn t f
+ | Slist (o:vs) <- v = _apply o vs
+ | otherwise = return $ return v
 
   where
-    special (Slist (Ssym s:_)) = s `M.member` specialForms
-    special _ = False
-
-    _apply_spec (Slist ((Ssym s):t)) = (specialForms M.! s) t f
-
-    _eval_var (Ssym sv) = lookup sv $ Just f
-
-    _apply (Slist []) = return $ return (Slist [])
-    _apply (Slist (o:vs)) = do
-      op <- eval o f
-      case op of
-        Left err -> return $ Left err
-        Right op' -> if not $ tc_macro op' then do
-                       vals <- evalList vs f
-                       case vals of Right vals' -> apply op' vals' f
-                                    Left err -> return $ Left err
-                     else do expn <- apply op' vs f
-                             -- this is what less insane lisps call `macroexpansion time.' haha.
-                             case expn of Left err -> return $ Left err
-                                          Right xv -> eval xv f
+    _apply o vs = eval o f >>= \op -> case op of
+      Right op' -> if not $ tc_macro op' then evalList vs f >>= \vals ->
+                     case vals of Right vals' -> apply op' vals' f
+                                  Left err -> return $ Left err
+                   else apply op' vs f >>= \expn ->
+                     case expn of Right xv -> eval xv f
+                                  err -> return err
+      err -> return err
 
 evalList :: [Sval] -> Int -> IO (Either String [Sval])
 evalList vs f = liftM sequence $ mapM (flip eval f) vs
@@ -230,27 +221,26 @@ specialForms = M.fromList $
   , (pack "quasiquote", f_quasiq)
   ]
 
-f_as = lc 2 $ \[k,x] i -> do
-  k' <- eval k i
-  case k' of Right (Sref i') -> do
-               f <- H.lookup env i'
-               case f of Just _ -> eval x i'
-                         Nothing -> return . Left $ "ERROR: as: bad frame identifier"
-             Right v -> return . Left $ "ERROR: as: bad type (expected ref): " ++ show v
-             err -> return err
+f_as = lc 2 $ \[k,x] i ->
+  eval k i >>= \k' -> case k' of
+    Right (Sref i') -> H.lookup env i' >>= maybe badFrame (const $ eval x i')
+    Right v -> badType v
+    err -> return err
+  where badFrame  = return $ Left "ERROR: as: bad frame identifier"
+        badType v = return . Left $ "ERROR: as: bad type (expected ref): " ++ show v
 
-f_if = lc 3 $ \[cond,y,n] f -> do
-  v <- eval cond f
-  case v of Left err -> return $ Left err
-            Right v' -> case v' of (Sbool False) -> eval n f
-                                   _             -> eval y f
+f_if = lc 3 $ \[cond,y,n] f ->
+  eval cond f >>= \v -> case v of
+    Right (Sbool False) -> eval n f
+    Right _             -> eval y f
+    err                 -> return err
 
-f_begin sv f = foldl (>>) (return . return $ Slist []) $ map (\o -> eval o f) sv
+f_begin sv = fmap (fmap last) . evalList sv
 
-f_quote = lc 1 $ \[v] _ -> return $ Right v
+f_quote = lc 1 $ const . return . Right . head
 
-f_quasiq = lc 1 $ \[v] f -> case v of Slist l -> spliceL l f
-                                      sv -> return $ Right sv
+f_quasiq = lc 1 $ \[v] -> case v of Slist l -> spliceL l
+                                    sv -> const (return $ Right sv)
   where
     spliceL l f = mapM (splice f) l >>= return . fmap Slist . sequence
     splice f (Slist l@[s,v]) = if s == sym_splice then eval v f else spliceL l f
@@ -259,49 +249,45 @@ f_quasiq = lc 1 $ \[v] f -> case v of Slist l -> spliceL l f
 
 f_splice _ _ = return $ Left "ERROR: splice: splice outside of quasiquoted expression"
 
-f_lambda = some $ tc [tc_list] $ \((Slist ps):svs) f ->
-  let ps' = map (\(Ssym s) -> s) ps in return . return $ Sfunc ps' svs f
+f_lambda = some $ tc [tc_list] $ \((Slist ps):svs) ->
+  let ps' = map (\(Ssym s) -> s) ps in return . return . Sfunc ps' svs
 
-f_macro = some $ tc [tc_list] $ \((Slist ps):svs) f ->
-  let ps' = map (\(Ssym s) -> s) ps in return . return $ Smacro ps' svs f
+f_macro = some $ tc [tc_list] $ \((Slist ps):svs) ->
+  let ps' = map (\(Ssym s) -> s) ps in return . return . Smacro ps' svs
 
 f_define vs f = case vs of
   [Ssym s, xp] -> do
-    xv <- eval xp f
-    case xv of
+    eval xp f >>= \xv -> case xv of
       Right v -> bind f s v >> return (Right v)
-      Left e -> return $ Left e
+      err -> return err
   (Slist (h:ss)):xps -> f_define [h, Slist ([sym_lambda, Slist ss] ++ xps)] f
   _ -> return $ Left "ERROR: define: bad definition syntax"
 
 
-f_set = lc 2 $ tc [tc_sym] $ \[Ssym s, xp] f -> do
-  xv <- eval xp f
-  case xv of
-    Right v -> do
-      f' <- findBinding s f
-      case f' of
-        Nothing -> return . Left $ "ERROR: set!: free or immutable variable: " ++ unpack s
-        Just n -> bind n s v >> return xv
-    Left e -> return $ Left e
+f_set = lc 2 $ tc [tc_sym] $ \[Ssym s, xp] f ->
+  eval xp f >>= \xv -> case xv of
+    Right v -> findBinding s f >>= \f' -> case f' of
+      Nothing -> return . Left $ "ERROR: set!: free or immutable variable: " ++ unpack s
+      Just n -> bind n s v >> return xv
+    err -> return err
 
-f_unset = lc 1 $ tc [tc_sym] $ \[Ssym s] f -> do
-  f' <- findBinding s f
-  case f' of Nothing -> return . Left $ "ERROR: unset!: free or immutable variable: " ++ unpack s
-             Just n -> do (b,_) <- getFrame n
-                          let v = b M.! s
-                          unbind n s
-                          return $ Right v
+f_unset = lc 1 $ tc [tc_sym] $ \[Ssym s] f ->
+  findBinding s f >>= \f' -> case f' of
+    Nothing -> return . Left $ "ERROR: unset!: free or immutable variable: " ++ unpack s
+    Just n -> do (b,_) <- getFrame n
+                 let v = b M.! s
+                 unbind n s
+                 return $ Right v
 
 findBinding :: ByteString -> Int -> IO (Maybe Int)
 findBinding nm n
   | n == toplevel = return Nothing
   | otherwise = do (bs,n) <- getFrame n
-                   case n of Just n' -> if nm `M.member` bs then return n else findBinding nm n'
+                   case n of Just n' -> if nm `M.member` bs then return n
+                                        else findBinding nm n'
                              Nothing -> return Nothing
 
 -- some bytestring constants
-sym_begin  = Ssym $ pack "begin"
 sym_lambda = Ssym $ pack "lambda"
 sym_splice = Ssym $ pack "splice"
 bs_splat   = pack "."

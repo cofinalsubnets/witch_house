@@ -60,13 +60,11 @@ garbageCollect mw = forever $ do
   modifyMVar_ mw $ \w -> gcW w >> return w
 
 persist :: MVar World -> Int -> FilePath -> Logger -> IO ()
-persist mw i f l = forever $ do
-  threadDelay $ 1000000 * i
-  l V2 $ "Saving world state to " ++ f ++ " ..."
-  w    <- readMVar mw
-  conn <- connect f
-  saveWorld w conn
-  disconnect conn
+persist mw i f l = connect f >>= loop
+  where loop conn = forever $ do
+          threadDelay $ 1000000 * i
+          l V2 $ "Saving world state to " ++ f ++ " ..."
+          readMVar mw >>= flip saveWorld conn
 
 login :: Handle -> MVar World -> IO ()
 login h mw = maybe exitSuccess (session h mw) =<< tryLogin
@@ -84,9 +82,7 @@ login h mw = maybe exitSuccess (session h mw) =<< tryLogin
                         if p == pw then loginExisting o
                         else loginFailure "Incorrect password."
 
-    loginFailure s = do hPutStrLn h s
-                        hClose h
-                        exitSuccess
+    loginFailure s = hPutStrLn h s >> hClose h >> exitSuccess
 
     loginExisting (p,_) = do bind (objId p) (pack "*handle*") (Shandle h)
                              hPutStrLn h (welcomeMsg $ name p) >> hFlush h
@@ -109,22 +105,21 @@ welcomeMsg n = "Welcome, " ++ n ++ ".\nType `help' for help."
 
 mkPlayer :: String -> String -> Handle -> IO Obj
 mkPlayer n pw h = do
-  o <- mkObj
-  bind (objId o) (pack "*name*")     (Sstring n)
-  bind (objId o) (pack "*password*") (Sstring pw)
-  bind (objId o) (pack "*handle*")   (Shandle h)
+  o@(Obj{objId = f}) <- mkObj
+  bind f (pack "*name*")     (Sstring n)
+  bind f (pack "*password*") (Sstring pw)
+  bind f (pack "*handle*")   (Shandle h)
   return o
 
 session :: Handle -> MVar World -> Obj -> IO ()
-session h mw client = do
-  forever $ do
-    hIsClosed h >>= \stop -> when stop exitSuccess
-    c <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
-    modifyMVar_ mw $ handleCommand c
+session h mw client = forever $ do
+  hIsClosed h >>= \stop -> when stop exitSuccess
+  c <- timeout 600000000 $ hGetLine h -- 10 min. timeout for requests
+  modifyMVar_ mw $ handleCommand c
 
   where
-    handleCommand c = let op = case c of Nothing -> parseCommand "quit"
-                                         Just "" -> return
-                                         Just c' -> parseCommand c'
-                      in op . find' (client ==) Global
+    handleCommand c = op c . find' (client ==) Global
+    op Nothing      = parseCommand "quit"
+    op (Just "")    = return
+    op (Just c)     = parseCommand c
 

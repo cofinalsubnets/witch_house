@@ -42,9 +42,8 @@ gcW w = do
       rs = concatMap (reachable g) $ map getVec (toplevel:(objIds w))
       vs = map getKey $ vertices g
       ks = map getKey rs
+      depth o = o:(contents o) ++ (concatMap depth $ contents o)
+      breadth = concatMap depth
+      objIds (f,c) = map objId $ breadth (f:c)
   mapM_ (H.delete env) (vs \\ ks)
-  where
-    depth o = o:(contents o) ++ (concatMap depth $ contents o)
-    breadth = concatMap depth
-    objIds (f,c) = map objId $ breadth (f:c)
 

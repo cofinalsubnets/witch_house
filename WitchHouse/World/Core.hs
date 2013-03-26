@@ -133,11 +133,8 @@ ripple (_,ds) = (Nothing, concatMap zDn ds) -- we're finished propagating upward
 steps :: Maybe Int -> World -> [World]
 steps n w = step n (Just w, zDn w)
   where step _ (Nothing,[]) = []
-        step (Just 0) l = case fst l of Nothing -> []
-                                        Just h -> [h]
-        step i l = let c = case fst l of Nothing -> snd l
-                                         Just h  -> h:(snd l)
-                   in c ++ step (fmap (subtract 1) i) (ripple l)
+        step (Just 0) (f,_) = maybe [] (:[]) f
+        step i l@(f,s) =  maybe s (:s) f ++ step (fmap (subtract 1) i) (ripple l)
 
 -- | Find the closest node to the current focus that satisfies the given
 -- predicate. The second argument determines the scope of the search:
