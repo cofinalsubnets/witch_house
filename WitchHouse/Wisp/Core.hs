@@ -175,18 +175,20 @@ apply sv vs i
       | otherwise = do
         let posV = pos `zip` vs
             varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
-        n   <- pushFrame (M.fromList (varV ++ posV), Just $ frameNo sv)
-        res <- f_begin (body sv) n
+            vars = varV ++ posV
+        n <- if null vars then return $ frameNo sv
+             else pushFrame (M.fromList vars, Just $ frameNo sv)
 
-        -- only keep the frame if there's a chance we'll need it later
-        case res of Left _ -> dropFrame n
-                    Right r  -> when (not $ any ($r) [tc_macro, tc_func, tc_list]) (dropFrame n)
-        return res
+        eval (Slist $ (Ssym $ pack "begin"):(body sv)) n
 
 
 eval :: Sval -> Int -> IO (Either String Sval)
 eval v f
  | Ssym s <- v = lookup s (Just f)
+ | Slist ((Ssym s):t) <- v, s == pack "begin" = do
+   res <- f_begin t f
+   case res of Right thunk -> thunk ()
+               Left err -> return $ Left err
  | Slist ((Ssym s):t) <- v, Just fn <- M.lookup s specialForms = fn t f
  | Slist (o:vs) <- v = _apply o vs
  | otherwise = return $ return v
@@ -209,7 +211,6 @@ evalList vs f = liftM sequence $ mapM (flip eval f) vs
 specialForms :: M.Map ByteString ([Sval] -> Int -> IO (Either String Sval))
 specialForms = M.fromList $
   [ (pack "define",     f_define)
-  , (pack "begin",      f_begin )
   , (pack "quote",      f_quote )
   , (pack "if",         f_if    )
   , (pack "lambda",     f_lambda)
@@ -220,6 +221,11 @@ specialForms = M.fromList $
   , (pack "as",         f_as    )
   , (pack "quasiquote", f_quasiq)
   ]
+
+f_begin [] _ = return . Right . const . return . Right $ Slist []
+f_begin sv f = evalList (init sv) f >>= \es -> case es of
+  Left err -> return $ Left err
+  _ -> return . Right . const $ eval (last sv) f
 
 f_as = lc 2 $ \[k,x] i ->
   eval k i >>= \k' -> case k' of
@@ -235,7 +241,6 @@ f_if = lc 3 $ \[cond,y,n] f ->
     Right _             -> eval y f
     err                 -> return err
 
-f_begin sv = fmap (fmap last) . evalList sv
 
 f_quote = lc 1 $ const . return . Right . head
 
