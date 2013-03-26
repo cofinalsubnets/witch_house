@@ -117,7 +117,7 @@ p_cat = const . return . return . Sstring . concatMap (\(Sstring s) -> s)
 p_null [Slist l] _ = return . return . Sbool $ null l
 
 -- | get fn arity
-p_arity = const . return . Right . Sfixn . length . takeWhile (/= bs_splat) . params . head
+p_arity = const . return . Right . Sfixn . fromIntegral . length . takeWhile (/= bs_splat) . params . head
 
 -- | string -> symbol coercion
 p_sym [Sstring s] _ = return . Right . Ssym $ pack s
@@ -179,18 +179,27 @@ apply sv vs i
         n <- if null vars then return $ frameNo sv
              else pushFrame (M.fromList vars, Just $ frameNo sv)
 
-        eval (Slist $ (Ssym $ pack "begin"):(body sv)) n
+        eval (Slist $ SFbegin:(body sv)) n
 
 
 eval :: Sval -> Int -> IO (Either String Sval)
 eval v f
  | Ssym s <- v = lookup s (Just f)
- | Slist ((Ssym s):t) <- v, s == pack "begin" = do
-   res <- f_begin t f
-   case res of Right thunk -> thunk ()
-               Left err -> return $ Left err
- | Slist ((Ssym s):t) <- v, Just fn <- M.lookup s specialForms = fn t f
- | Slist (o:vs) <- v = _apply o vs
+ | Slist (o:vs) <- v = case o of
+   SFbegin -> f_begin vs f >>= \res -> case res of
+     Right thunk -> thunk ()
+     Left err -> return $ Left err
+   SFquote -> f_quote vs f
+   SFif -> f_if vs f
+   SFlambda -> f_lambda vs f
+   SFset -> f_set vs f
+   SFsplice -> f_splice vs f
+   SFmacro -> f_macro vs f
+   SFunset -> f_unset vs f
+   SFas -> f_as vs f
+   SFqq -> f_quasiq vs f
+   SFdef -> f_define vs f
+   _ -> _apply o vs
  | otherwise = return $ return v
 
   where
@@ -207,20 +216,6 @@ evalList :: [Sval] -> Int -> IO (Either String [Sval])
 evalList vs f = liftM sequence $ mapM (flip eval f) vs
 
 -- SPECIAL FORMS
-
-specialForms :: M.Map ByteString ([Sval] -> Int -> IO (Either String Sval))
-specialForms = M.fromList $
-  [ (pack "define",     f_define)
-  , (pack "quote",      f_quote )
-  , (pack "if",         f_if    )
-  , (pack "lambda",     f_lambda)
-  , (pack "set!",       f_set   )
-  , (pack "splice",     f_splice)
-  , (pack "macro",      f_macro )
-  , (pack "unset!",     f_unset )
-  , (pack "as",         f_as    )
-  , (pack "quasiquote", f_quasiq)
-  ]
 
 f_begin [] _ = return . Right . const . return . Right $ Slist []
 f_begin sv f = evalList (init sv) f >>= \es -> case es of
@@ -248,7 +243,7 @@ f_quasiq = lc 1 $ \[v] -> case v of Slist l -> spliceL l
                                     sv -> const (return $ Right sv)
   where
     spliceL l f = mapM (splice f) l >>= return . fmap Slist . sequence
-    splice f (Slist l@[s,v]) = if s == sym_splice then eval v f else spliceL l f
+    splice f (Slist l@[s,v]) = if s == SFsplice then eval v f else spliceL l f
     splice f (Slist l) = spliceL l f
     splice _ v = return $ return v
 
@@ -265,7 +260,7 @@ f_define vs f = case vs of
     eval xp f >>= \xv -> case xv of
       Right v -> bind f s v >> return (Right v)
       err -> return err
-  (Slist (h:ss)):xps -> f_define [h, Slist ([sym_lambda, Slist ss] ++ xps)] f
+  (Slist (h:ss)):xps -> f_define [h, Slist ([SFlambda, Slist ss] ++ xps)] f
   _ -> return $ Left "ERROR: define: bad definition syntax"
 
 
@@ -292,8 +287,6 @@ findBinding nm n
                                         else findBinding nm n'
                              Nothing -> return Nothing
 
--- some bytestring constants
-sym_lambda = Ssym $ pack "lambda"
-sym_splice = Ssym $ pack "splice"
+-- bytestring constants
 bs_splat   = pack "."
 

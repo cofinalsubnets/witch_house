@@ -53,7 +53,7 @@ data Scope = Self
 type Frame = (Map ByteString Sval, Maybe Int)
 
 -- type for wisp values
-data Sval = Sfixn   Int
+data Sval = Sfixn   Integer
           | Sfloat  Double
           | Sstring String
           | Ssym    ByteString
@@ -65,6 +65,9 @@ data Sval = Sfixn   Int
           | Shandle Handle
           | Sref    Int
           | Sworld  World
+          -- special forms
+          | SFbegin | SFquote | SFif | SFlambda | SFmacro
+          | SFset | SFunset | SFqq | SFsplice | SFas | SFdef
 
 instance Show Sval where
   show (Sfixn n)       = show n
@@ -79,6 +82,17 @@ instance Show Sval where
   show (Sprim _)       = "#<prim fn>"
   show (Sworld (f,_))  = "#<obj:" ++ show (objId $ f) ++ ">"
   show (Sref _)        = "#<ref>"
+  show SFbegin         = "begin"
+  show SFqq            = "quasiquote"
+  show SFquote         = "quote"
+  show SFsplice        = "splice"
+  show SFif            = "if"
+  show SFset           = "set!"
+  show SFunset         = "unset!"
+  show SFdef           = "define"
+  show SFlambda        = "lambda"
+  show SFmacro         = "macro"
+  show SFas            = "as"
 
 instance Eq Sval where
   (Sfixn a)   == (Sfixn b)   = a == b

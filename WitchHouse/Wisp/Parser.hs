@@ -19,16 +19,18 @@ wisp = optional whitespace *> expr <* optional whitespace
 
     nakedExpr = sexp <|> atom
 
-    quotedExpr = (\v -> Slist [Ssym $ pack "quote", v]) `fmap` (quote *> expr)
+    quotedExpr = (\v -> Slist [SFquote, v]) `fmap` (quote *> expr)
       where quote = char '\''
 
-    quasiquotedExpr = (\v -> Slist [Ssym $ pack "quasiquote", v]) `fmap` (qquote *> expr)
+    quasiquotedExpr = (\v -> Slist [SFqq, v]) `fmap` (qquote *> expr)
       where qquote = char '`'
 
-    splicedExpr = (\v -> Slist [Ssym $ pack "splice", v]) `fmap` (splice *> expr)
+    splicedExpr = (\v -> Slist [SFsplice, v]) `fmap` (splice *> expr)
       where splice = char ','
 
-    sexp = fmap Slist $ char '(' *> optional wsOrComment *> expr `sepEndBy` wsOrComment <* char ')'
+    sexp = fmap Slist $ char '(' *> optional wsOrComment *> (fm <|> ls) <* char ')'
+    fm = (:) <$> specialForm <*> ls
+    ls = expr `sepEndBy` wsOrComment
 
     wsOrComment = do whitespace
                      optional $ do char ';'
@@ -47,6 +49,20 @@ wisp = optional whitespace *> expr <* optional whitespace
                           <|> escaped 't' '\t'
                           <|> escaped '\\' '\\'
                           <|> noneOf "\\\""
+
+    specialForm =  sf "if" SFif
+               <|> sf "begin" SFbegin
+               <|> sf "quote" SFquote
+               <|> sf "lambda" SFlambda
+               <|> sf "define" SFdef
+               <|> sf "as" SFas
+               <|> sf "macro" SFmacro
+               <|> sf "set!" SFset
+               <|> sf "unset!" SFunset
+               <|> sf "quasiquote" SFqq
+               <|> sf "splice" SFsplice
+
+    sf s f = try $ string s >> whitespace >> return f
 
     symbol = (Ssym . pack) `fmap` ((:) <$> symC <*> many (digit <|> symC))
       where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:")
