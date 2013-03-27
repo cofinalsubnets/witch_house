@@ -1,7 +1,7 @@
 witch\_house
 ===========
 
-witch\_house is a MUD-like multiplayer world-building environment written in Haskell and (somewhat) scriptable in a purpose-made miniature Lisp.
+witch\_house is a MUD-like multiplayer world-building (educational?) environment written in Haskell and played in a purpose-made miniature Lisp.
 
 how to use
 ==========
@@ -9,8 +9,15 @@ how to use
 Build. Run. Connect using telnet or netcat. Invite your friends, teleport into their bodies, and swap their organs. Program them to weep with joy in response. Repeat.
 
 
-how to write wisp
-=================
+wisp
+====
 
-Wisp is the little Lisp embedded in witch\_house. Its vocabulary is vaguely Scheme-like. More documentation may be forthcoming; meantime, running `witch_house --wisp` will start up a REPL.
+Wisp is the little Lisp embedded in witch\_house. Its vocabulary is vaguely Scheme-like. It includes a superset of the following features:
+
+- garbage collection
+- first-class functions with full lexical closures
+- variadic functions
+- macros
+- automatic currying of non-primitive functions and macros
+- tail call optimization
 
