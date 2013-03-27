@@ -126,7 +126,7 @@ p_cat = const . return . return . Sstring . concatMap (\(Sstring s) -> s)
 p_null [Slist l] _ = return . return . Sbool $ null l
 
 -- | get fn arity
-p_arity = const . return . Right . Sfixn . fromIntegral . length . takeWhile (/= bs_splat) . params . head
+p_arity = const . return . Right . Sfixn . fromIntegral . length . takeWhile (/= Ssym bs_splat) . params . head
 
 -- | string -> symbol coercion
 p_sym [Sstring s] _ = return . Right . Ssym $ pack s
@@ -184,27 +184,27 @@ apply sv vs i
  | tc_func sv || tc_macro sv = app posArgs splat vs
  | otherwise = return  . Left $ "ERROR: apply: non-applicable value: " ++ show sv
   where
-    (posArgs, splat) = break (== bs_splat) (params sv)
+    (posArgs, splat) = break (== Ssym bs_splat) (params sv)
     app pos var sup
 
       | not $ null var || length var == 2
       = return . Left $ "ERROR: apply: bad variadic parameter syntax: " ++ show (params sv)
 
       | length pos > length sup && (not $ null sup)
-      = let (bs,ps') = splitAt (length sup) $ params sv
-            binds = zipWith bindIn bs sup
-            Slist b' = foldr ($) (Slist $ body sv) binds
-        in return . return $ sv{body = b', params = ps'}
+      = return $ do
+          let (bs, ps') = splitAt (length sup) $ params sv
+          kvs <- patM (Slist bs) (Slist sup)
+          let binds = map (\(k,v) -> bindIn k v) kvs
+              Slist b' = foldr ($) (Slist $ body sv) binds
+          return $ sv{body = b', params = ps'}
       | null var && length pos < length sup || null sup && (not $ null pos)
       = return . Left $ "ERROR: wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos)
 
-      | otherwise = do
-        let posV = pos `zip` vs
-            vars = if null var then posV
-                   else posV ++ [(last var, Slist $ drop (length pos) vs)]
-
-        n <- pushFrame (M.fromList vars, Just $ frameNo sv)
-        eval (Slist $ SFbegin:(body sv)) n
+      | otherwise = case patM (Slist $ params sv) (Slist sup) of
+        Left err -> return $ Left err
+        Right vars -> do
+          n <- pushFrame (M.fromList vars, Just $ frameNo sv)
+          eval (Slist $ SFbegin:(body sv)) n
 
 
 eval :: Sval -> Int -> IO (Either String Sval)
@@ -289,10 +289,10 @@ f_quasiq = lc 1 $ \[v] -> case v of
 f_splice _ _ = return $ Left "ERROR: splice: splice outside of quasiquoted expression"
 
 f_lambda = some $ tc [tc_list] $ \((Slist ps):svs) ->
-  let ps' = map (\(Ssym s) -> s) ps in return . return . Sfunc ps' svs
+  return . return . Sfunc ps svs
 
 f_macro = some $ tc [tc_list] $ \((Slist ps):svs) ->
-  let ps' = map (\(Ssym s) -> s) ps in return . return . Smacro ps' svs
+  return . return . Smacro ps svs
 
 f_define vs f = case vs of
   [Ssym s, xp] -> do
@@ -324,4 +324,18 @@ findBinding nm f = do
 
 -- bytestring constants
 bs_splat   = pack "&"
+
+patM :: Sval -> Sval -> Either String [(ByteString, Sval)]
+patM (Ssym s) v = Right [(s,v)]
+patM (Slist l) (Slist v) 
+  | (req, (_:o)) <- break (== Ssym bs_splat) l = do
+    let ps = length req
+    pos <- patM (Slist req) (Slist $ take ps v)
+    case o of [s] -> fmap (pos ++) $ patM s (Slist $ drop ps v)
+              _ -> Left $ "Pattern error: bad variadic parameter syntax"
+  | length l == length v = fmap concat . sequence $ zipWith patM l v
+  | otherwise = Left $ "Pattern error: pattern length mismatch: " ++ show (length l) ++ " bindings, " ++ show (length v) ++ " values"
+patM l@(Slist _) v = Left $ "Pattern error: data mismatch: can't match " ++ show l ++ " with " ++ show v
+patM p _ = Left $ "Pattern error: illegal pattern: " ++ show p
+
 
