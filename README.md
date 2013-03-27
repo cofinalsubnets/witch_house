@@ -19,6 +19,6 @@ Wisp is the little Lisp embedded in witch\_house. Its vocabulary is vaguely Sche
 - first-class functions with full lexical closures
 - variadic functions
 - macros
-- list destructuring
+- list destructuring in binding forms
 - automatic currying of non-primitive functions and macros
 

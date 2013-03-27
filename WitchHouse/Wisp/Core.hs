@@ -334,7 +334,7 @@ patM (Slist l) (Slist v)
     case o of [s] -> fmap (pos ++) $ patM s (Slist $ drop ps v)
               _ -> Left $ "Pattern error: bad variadic parameter syntax"
   | length l == length v = fmap concat . sequence $ zipWith patM l v
-  | otherwise = Left $ "Pattern error: pattern length mismatch: " ++ show (length l) ++ " bindings, " ++ show (length v) ++ " values"
+  | otherwise = Left $ "Pattern error: pattern length mismatch: " ++ show (length l) ++ " patterns, " ++ show (length v) ++ " values"
 patM l@(Slist _) v = Left $ "Pattern error: data mismatch: can't match " ++ show l ++ " with " ++ show v
 patM p _ = Left $ "Pattern error: illegal pattern: " ++ show p
 

@@ -1,4 +1,5 @@
 (test
+
   ("control - this test should fail" #f)
 
   ("map"
@@ -30,5 +31,16 @@
         (not (primitive? list))
         (primitive? +)
         (not (number? "pew pew pew"))))
+
+  ("destructuring"
+   (let (((a (b c) & d) '(1 (2 3) 4 5 6)))
+     (and (= 1 a)
+          (= 2 b)
+          (= 3 c)
+          (= '(4 5 6) d))))
+
+  ("destructuring with currying"
+   (let ((f (lambda (a (b & c)) (list a b c))))
+     (= '(1 2 (3)) ((f 1) '(2 3)))))
   )
 
