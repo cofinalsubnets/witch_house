@@ -75,6 +75,7 @@ bindings = M.fromList $
   , (pack "macro?",     check tc_macro )
   , (pack "handle?",    check tc_handle)
   , (pack "ref?",       check tc_ref   )
+  , (pack "<",          Sprim $ p_lt)
   , (pack "make-ref",   Sprim $ lc 0 p_mk_ref       )
   , (pack "make-self-ref", Sprim $ lc 0 p_mk_self_ref)
   ]
@@ -93,6 +94,12 @@ check p = Sprim $ \vs -> evalList vs >=> return . fmap (Sbool . all p)
 -- | string coercion
 p_str [s@(Sstring _)] _ = return (Right s)
 p_str [v] _ = return . Right . Sstring $ show v
+
+p_lt = lc 2 $ tc (repeat tc_num) $ \ns _ -> case ns of
+  [Sfixn a, Sfixn b] -> return . return . Sbool $ a < b
+  [Sfixn a, Sfloat b] -> return . return . Sbool $ fromIntegral a < b
+  [Sfloat a, Sfixn b] -> return . return . Sbool $ a < fromIntegral b
+  [Sfloat a, Sfloat b] -> return . return . Sbool $ a < b
 
 -- | equality
 p_eq vs _ = return . return . Sbool . and . zipWith (==) vs $ drop 1 vs
@@ -176,9 +183,8 @@ apply sv vs i
         let posV = pos `zip` vs
             varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
             vars = varV ++ posV
-        n <- if null vars then return $ frameNo sv
-             else pushFrame (M.fromList vars, Just $ frameNo sv)
 
+        n <- pushFrame (M.fromList vars, Just $ frameNo sv)
         eval (Slist $ SFbegin:(body sv)) n
 
 
@@ -194,6 +200,7 @@ eval v f
    SFlambda -> f_lambda vs f
    SFset -> f_set vs f
    SFsplice -> f_splice vs f
+   SFmerge -> f_splice vs f
    SFmacro -> f_macro vs f
    SFunset -> f_unset vs f
    SFas -> f_as vs f
@@ -239,13 +246,21 @@ f_if = lc 3 $ \[cond,y,n] f ->
 
 f_quote = lc 1 $ const . return . Right . head
 
-f_quasiq = lc 1 $ \[v] -> case v of Slist l -> spliceL l
-                                    sv -> const (return $ Right sv)
+f_quasiq = lc 1 $ \[v] -> case v of
+  Slist l -> spliceL l >=> return . fmap Slist . sequence
+  sv -> const (return $ Right sv)
   where
-    spliceL l f = mapM (splice f) l >>= return . fmap Slist . sequence
-    splice f (Slist l@[s,v]) = if s == SFsplice then eval v f else spliceL l f
-    splice f (Slist l) = spliceL l f
-    splice _ v = return $ return v
+    spliceL [] _ = return []
+    spliceL ((Slist l):t) f
+     | [SFsplice, v] <- l = liftM2 (:) (eval v f) (spliceL t f)
+     | [SFmerge,  v] <- l = do
+       m <- spliceL [v] f
+       case sequence m of
+         Right [Slist l'] -> liftM2 (++) (return $ map return l') (spliceL t f)
+         Right v -> liftM2 (:) (return $ Left $ "ERROR: msplice: bad merge syntax: " ++ show v) (spliceL t f)
+         Left err -> liftM2 (:) (return $ Left err) (spliceL t f)
+     | otherwise = liftM2 (:) (fmap (fmap Slist . sequence) $ spliceL l f) (spliceL t f)
+    spliceL (v:t) f = liftM2 (:) (return $ return v) (spliceL t f)
 
 f_splice _ _ = return $ Left "ERROR: splice: splice outside of quasiquoted expression"
 
@@ -280,12 +295,11 @@ f_unset = lc 1 $ tc [tc_sym] $ \[Ssym s] f ->
                  return $ Right v
 
 findBinding :: ByteString -> Int -> IO (Maybe Int)
-findBinding nm n
-  | n == toplevel = return Nothing
-  | otherwise = do (bs,n) <- getFrame n
-                   case n of Just n' -> if nm `M.member` bs then return n
-                                        else findBinding nm n'
-                             Nothing -> return Nothing
+findBinding nm f = do
+  (bs,n) <- getFrame f
+  case n of Just n' -> if nm `M.member` bs then return $ return f
+                       else findBinding nm n'
+            Nothing -> return Nothing
 
 -- bytestring constants
 bs_splat   = pack "."

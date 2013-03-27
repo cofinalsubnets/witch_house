@@ -10,17 +10,14 @@ stl = unlines $
   , "    (macro (case . cases)"
   , "      (fold (lambda (l c)"
   , "              `(if ,(car c)"
-  , "                   ,(cons 'begin (cdr c))"
+  , "                   (begin @,(cdr c))"
   , "                   ,l))"
   , "            '(error \"cond: fell through\")"
   , "            (reverse (cons case cases)))))"
 
   , "  (define let"
   , "    (macro (binds . body)"
-  , "      `(apply ,(cons 'lambda"
-  , "                     (cons (map car binds)"
-  , "                           body))"
-  , "              ,(cons 'list (map cadr binds)))))"
+  , "      `((lambda ,(map car binds) @,body) @,(map cadr binds))))"
 
   , "  (define (member e lst)"
   , "    (cond ((null? lst) #f)"
@@ -46,6 +43,22 @@ stl = unlines $
   , "        l"
   , "        (apply (lambda (h . t) t)"
   , "               l)))"
+
+  , "  (define (/= a b) (not (= a b)))"
+  , "  (define (> a b) (and (not (= a b))"
+  , "                       (not (< a b))))"
+  , "  (define (>= a b) (or (= a b) (> a b)))"
+  , "  (define (<= a b) (or (= a b) (< a b)))"
+
+  , "  (define (curry fn)"
+  , "    (define args '())"
+  , "    (define (inner . as)"
+  , "      (let ((cas (append args as)))"
+  , "        (cond ((= (length cas) (arity fn)) (apply fn cas))"
+  , "              ((> (length cas) (arity fn))"
+  , "               (error \"curry: too many arguments\"))"
+  , "              (#t (set! args cas) inner))))"
+  , "    inner)"
 
   , "  (define caar (comp car car))"
   , "  (define cadr (comp car cdr))"
@@ -104,9 +117,6 @@ stl = unlines $
   , "  (define (rem a b)"
   , "    (- a (* b (/ a b))))"
 
-  , "  (define (even? n)"
-  , "    (= 0 (rem n 2)))"
-
   , "  (define floor int)"
 
   , "  (define (ceil n)"
@@ -115,9 +125,6 @@ stl = unlines $
 
   , "  (define (abs n) (* n (/ n n)))"
 
-  , "  (define odd? (comp not even?))"
-
-  
   , "  (define (append l1 l2)"
   , "    (if (null? l1)"
   , "        l2"

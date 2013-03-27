@@ -15,7 +15,7 @@ wisp = optional whitespace *> expr <* optional whitespace
 
     whitespace = many1 $ oneOf " \n\t\r"
 
-    expr = nakedExpr <|> quotedExpr <|> quasiquotedExpr <|> splicedExpr
+    expr = nakedExpr <|> quotedExpr <|> quasiquotedExpr <|> splicedExpr <|> mergedExpr
 
     nakedExpr = sexp <|> atom
 
@@ -27,6 +27,9 @@ wisp = optional whitespace *> expr <* optional whitespace
 
     splicedExpr = (\v -> Slist [SFsplice, v]) `fmap` (splice *> expr)
       where splice = char ','
+
+    mergedExpr = (\v -> Slist [SFmerge, v]) `fmap` (splice *> expr)
+      where splice = char '@'
 
     sexp = fmap Slist $ char '(' *> optional wsOrComment *> (fm <|> ls) <* char ')'
     fm = (:) <$> specialForm <*> ls
@@ -61,11 +64,12 @@ wisp = optional whitespace *> expr <* optional whitespace
                <|> sf "unset!" SFunset
                <|> sf "quasiquote" SFqq
                <|> sf "splice" SFsplice
+               <|> sf "msplice" SFmerge
 
     sf s f = try $ string s >> whitespace >> return f
 
     symbol = (Ssym . pack) `fmap` ((:) <$> symC <*> many (digit <|> symC))
-      where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:")
+      where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:<>")
 
     number =  (Sfloat . read) `fmap` try dec
           <|> (Sfixn  . read) `fmap` try neg
