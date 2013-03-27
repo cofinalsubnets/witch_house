@@ -85,6 +85,12 @@ send actn w = do
               Right (Sworld w') -> return w'
               Right _ -> return w
 
+send2 op targ = tryTo (find (matchName targ) Location) $ \w w' -> do
+  res <- invoke op [Sworld w] w'
+  case res of Left err -> notify err w
+              Right (Sworld w'') -> return w''
+              Right _ -> return w
+
 bindings :: Command
 bindings w = do
   (m,_) <- getFrame (objId $ focus w)
@@ -92,12 +98,11 @@ bindings w = do
 
 
 quit :: Command
-quit (f,c) = case handle f of
-  Nothing -> return (f,c)
-  Just h -> do hPutStrLn h "Bye!"
-               hClose h
+quit w@(f,_) = case handle f of
+  Nothing -> return w
+  Just h -> do hPutStrLn h "Bye!" >> hClose h
                unbind (objId f) (pack "*handle*")
-               return (f,c)
+               return w
 
 goes :: String -> Command
 goes dir = tryTo (go dir) $ \w w' -> do
@@ -184,10 +189,9 @@ me :: String -> Command
 me msg = notify msg >=> notifyExcept msg
 
 evals :: String -> Command
-evals s w = do
-  res <- s `evalOn` w
-  case res of Left err -> notify err w
-              Right v -> notify (show v) w >> return w
+evals s w = s `evalOn` w >>= \res -> case res of
+  Left err -> notify err w
+  Right v -> notify (show v) w >> return w
 
 evalIn :: String -> String -> Command
 evalIn l t = tryTo (find (matchName t) Location) $ \w t' ->
@@ -205,6 +209,7 @@ drops n = tryTo (drop $ matchName n) $ \w w' -> do
   notifyExcept ((name $ focus w) ++ " drops " ++ (name $ focus w')) w
   invoke "looks" [Sworld w'] w'
   notify ((name $ focus w) ++ " drops you!") w'
+
 
 
 command :: GenParser Char st Command
@@ -259,6 +264,7 @@ command = optional whitespace *> (wispExpr <|> targetedExpr <|> cmd)
        <|> cHelp
        <|> cShare
        <|> cSend
+       <|> cSend2
 
     cEnter    = enters `fmap` unary "enter"
     cGo       = goes `fmap` unary "go"
@@ -275,5 +281,10 @@ command = optional whitespace *> (wispExpr <|> targetedExpr <|> cmd)
     cRecycle  = recycle `fmap` unary "recycle"
     cBindings = nullary "bindings" >> return bindings
     cHelp     = nullary "help" >> return help
-    cSend     = many anyChar >>= return . send
+    cSend     = try (str <* eof) >>= return . send
+    cSend2    = do
+      s1 <- str
+      s2 <- str
+      eof
+      return $ send2 s1 s2
 
