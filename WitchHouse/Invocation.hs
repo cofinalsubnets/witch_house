@@ -11,7 +11,7 @@ import System.IO
 
 import WitchHouse.Types
 import WitchHouse.Persistence (connect, disconnect, loadWorld)
-import WitchHouse.Wisp (evalWisp, toplevel, repl, bind)
+import WitchHouse.Wisp (load, evalWisp, toplevel, repl, bind)
 import WitchHouse.World
 import WitchHouse.Version
 import WitchHouse.Wisp.Test
@@ -64,9 +64,9 @@ options = [ Option "" ["cores"]
           ]
 
 runFile f opts = do
-  loadTestLib
+  load toplevel testLib
   t <- readFile f
-  r <- evalWisp (unlines ["(begin", t, ")"]) toplevel
+  r <- evalWisp toplevel (unlines ["(begin", t, ")"])
   case r of Right _ -> exitSuccess
             Left err -> putStrLn err >> exitFailure
 

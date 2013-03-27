@@ -22,6 +22,7 @@ import WitchHouse.Persistence
 
 startServer :: Options -> IO ()
 startServer opts = do
+  load toplevel worldLib
   let logger = mkLogger (logHandle opts) "%H:%M:%S %z"(verbosity opts)
   mw <- newMVar (initialState opts)
   sock <- listenOn $ PortNumber (fromIntegral . portNo $ opts)

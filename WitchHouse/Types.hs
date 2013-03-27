@@ -8,6 +8,8 @@ module WitchHouse.Types
 , Scope(..)
 , Sval(..)
 , Frame
+, Module
+, mempty
 ) where
 
 import Data.Map (Map)
@@ -15,6 +17,7 @@ import System.IO (Handle)
 import Data.Function (on)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (unpack)
+import Data.Monoid
 
 -- command line options
 data Options = Options { portNo       :: Int
@@ -51,6 +54,7 @@ data Scope = Self
 -- TYPES FOR WISP
 
 type Frame = (Map ByteString Sval, Maybe Int)
+type Module = ([(ByteString, Sval)], String)
 
 -- type for wisp values
 data Sval = Sfixn   Integer

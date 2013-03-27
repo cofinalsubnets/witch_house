@@ -5,7 +5,7 @@ module WitchHouse.World
 , evalOn
 , notify
 , notifyExcept
-, bootstrap
+, worldLib
 ) where
 
 import WitchHouse.World.Core

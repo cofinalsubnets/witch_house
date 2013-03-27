@@ -1,15 +1,11 @@
-module WitchHouse.Wisp.Test (loadTestLib) where
+module WitchHouse.Wisp.Test (testLib) where
 
-import WitchHouse.Wisp
 import WitchHouse.Types
 import WitchHouse.Wisp.Predicates
-import WitchHouse.Wisp.Core (apply)
 import Data.ByteString.Char8 (pack)
 
-loadTestLib = do
-  mapM_ (\(s,f) -> bind toplevel s f) lib
-  evalWisp defs toplevel
-  
+testLib :: Module
+testLib = (lib,defs)
   where
     lib = [ (pack "print", t_print) ]
     defs = unlines $

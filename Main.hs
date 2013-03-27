@@ -4,7 +4,7 @@ import System.Environment (getArgs)
 import WitchHouse.Invocation (handleArgs)
 import WitchHouse.Server
 import WitchHouse.Wisp
-import qualified WitchHouse.World as World (bootstrap)
+import Data.Monoid (mempty)
 
 -- | Startup goes like this:
 -- 1. Parse command line arguments.
@@ -13,7 +13,6 @@ import qualified WitchHouse.World as World (bootstrap)
 -- spawn additional processes as necessary to handle clients.
 main :: IO ()
 main = do
-  evalWisp stl toplevel
-  World.bootstrap
+  load toplevel (mempty, stl)
   getArgs >>= handleArgs >>= startServer
 

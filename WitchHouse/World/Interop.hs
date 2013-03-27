@@ -1,6 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 module WitchHouse.World.Interop
-( bootstrap
+( worldLib
 , invoke
 , evalOn
 , notify
@@ -20,12 +20,8 @@ import qualified Data.Map as M
 import System.IO (hPutStrLn, hFlush)
 import Data.ByteString.Char8 (pack)
 
-bootstrap :: IO ()
-bootstrap = do
-  mapM_ (\(k,v) -> bind toplevel k v) primitives
-  evalWisp defs toplevel
-  return ()
-
+worldLib :: Module
+worldLib = (primitives, defs)
   where
     primitives =
       [ (pack "tell", wisp_tell)
@@ -105,7 +101,7 @@ invoke f sv (Obj{objId = i},_) = do
     Right fn -> eval (Slist (fn:sv)) i
 
 evalOn :: String -> World -> IO (Either String Sval)
-evalOn s (Obj{objId = i},_) = evalWisp s i
+evalOn s (Obj{objId = i},_) = evalWisp i s
 
 wisp_w_up = Sprim $ lc 1 $ tc [tc_world] $ \[Sworld w] _ ->
   return $ Sworld `fmap` exit w

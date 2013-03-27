@@ -1,15 +1,22 @@
 (test
   ("control - this test should fail" #f)
+
   ("map"
-    (let ((r (map inc '(1 2 3))))
-      (= r '(2 3 4))))
+    (= (map inc '(1 2 3)) '(2 3 4)))
+
+  ("currying"
+    (let ((ap (lambda (op a b) (op a b))))
+      (and (= (+ 1 2) (((ap +) 1) 2))
+           (= "abc" ((ap cat) "a" "bc")))))
+
   ("let, currying, and scoping"
-    (let ((a 1) (b 2) (c 3) (add3 (lambda (a b c) (+ a b c))))
+    (let ((a 1) (b 2) (c 3) (add3 (lambda (c d e) (+ c d e))))
       (and (= a 1)
            (= b 2)
            (= c 3)
            (= 6 (add3 a b c))
            (= 6 (((add3 a) b) c)))))
+
   ("type predicates"
    (and (list? '(1))
         (number? 72165972.451)
