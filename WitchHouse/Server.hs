@@ -72,7 +72,7 @@ login h mw = maybe exitSuccess (session h mw) =<< tryLogin
   where
 
     tryLogin = timeout 60000000 $ do
-      n <- request h $ unlines [connectMsg, "Name: "]
+      n <- request h $ connectMsg ++ "\nName: "
       w <- readMVar mw
 
       case find ((n==) . name) Global w of
@@ -96,7 +96,7 @@ login h mw = maybe exitSuccess (session h mw) =<< tryLogin
                     return o
 
 request :: Handle -> String -> IO String
-request h s = hPutStrLn h s >> hFlush h >> hGetLine h
+request h s = hPutStr h s >> hFlush h >> hGetLine h
 
 connectMsg :: String
 connectMsg = "witch_house " ++ version

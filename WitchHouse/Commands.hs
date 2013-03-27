@@ -29,9 +29,10 @@ parseCommand s = case parse command "" s of
 
 {- NOTIFICATION HELPERS -}
 
-notifyResult :: (World -> Either String World) -> Command -> Command
-notifyResult wt wio w = case wt w of Left err -> notify err w
-                                     Right w' -> wio $ find' (==focus w) Global w'
+tryTo :: (World -> Either String World) -> (World -> World -> IO World) -> Command
+tryTo t s w = case t w of
+  Left err -> notify err w
+  Right w' -> s w w'
 
 {- COMMANDS -}
 
@@ -99,18 +100,16 @@ quit (f,c) = case handle f of
                return (f,c)
 
 goes :: String -> Command
-goes dir w = case go dir w of
-  Left err -> notify err w
-  Right w' -> do notifyExcept ((name $ focus w) ++ " goes " ++ dir ++ ".") w
-                 notifyExcept ((name $ focus w) ++ " arrives.") w'
-                 send "look" w'
+goes dir = tryTo (go dir) $ \w w' -> do
+  notifyExcept ((name $ focus w) ++ " goes " ++ dir ++ ".") w
+  notifyExcept ((name $ focus w) ++ " arrives.") w'
+  send "look" w'
 
 enters :: String -> Command
-enters n w = case enter (matchName n) w of
-  Left err -> notify err w
-  Right w' -> do (++ " enters "++(name . focus . zUp' $ w')++".") . name . focus >>= notifyExcept $ w
-                 send "look" w'
-                 ((++" enters.") . name . focus >>= notifyExcept) w'
+enters n = tryTo (enter $ matchName n) $ \w w' -> do
+  (++ " enters "++(name . focus . zUp' $ w')++".") . name . focus >>= notifyExcept $ w
+  send "look" w'
+  ((++" enters.") . name . focus >>= notifyExcept) w'
 
 makes :: String -> Command
 makes n w = do
@@ -143,26 +142,23 @@ hasRef :: World -> World -> Bool
     _ -> return False
 
 shareBinding :: String -> String -> Command
-shareBinding b t w = case find (matchName t) Location w of
-  Left err -> notify err w
-  Right t' -> do
-    (bs,_) <- getFrame (objId $ focus w)
-    case M.lookup (pack b) bs of
-      Nothing -> notify ("You don't have a binding called " ++ b ++ ".") w
-      Just v -> do addBind t' v
-                   notify "Binding shared!" w
-                   notify (name (focus w) ++ " has shared a binding with you!") t'
+shareBinding b t = tryTo (find (matchName t) Location) $ \w t' -> do
+  (bs,_) <- getFrame (objId $ focus w)
+  case M.lookup (pack b) bs of
+    Nothing -> notify ("You don't have a binding called " ++ b ++ ".") w
+    Just v -> do addBind t' v
+                 notify "Binding shared!" w
+                 notify (name (focus w) ++ " has shared a binding with you!") t'
 
 recycle :: String -> Command
-recycle n w = case find (matchName n) Self w of
-  Left err -> notify err w
-  Right w' -> case handle . focus $ w' of
-                Just _ -> notify "You can't recycle an active player!" w >> notify ((name . focus $ w) ++ " tried to recycle you!") w'
-                Nothing -> case contents . focus $ w' of
-                             [] -> do notify ((name $ focus w') ++ " has been recycled.") w
-                                      dropFrame . objId $ focus w'
-                                      return $ zDel w'
-                             _ -> notify "You can't recycle a non-empty object." w
+recycle n = tryTo (find (matchName n) Self) $ \w w' ->
+  case handle . focus $ w' of
+    Just _ -> notify "You can't recycle an active player!" w >> notify ((name . focus $ w) ++ " tried to recycle you!") w'
+    Nothing -> case contents . focus $ w' of
+                 [] -> do notify ((name $ focus w') ++ " has been recycled.") w
+                          dropFrame . objId $ focus w'
+                          return $ zDel w'
+                 _ -> notify "You can't recycle a non-empty object." w
 
 reset :: Command
 reset w@((Obj{objId = f}),_) = do
@@ -172,11 +168,14 @@ reset w@((Obj{objId = f}),_) = do
   notify "Bindings reset." w
 
 links :: String -> String -> Command
-links dir dest = notifyResult (\w -> zUp w >>= link dir (matchName dest) >>= find (focus w ==) Self) $
-                   notify ("Linked: "++dir++" => "++dest)
+links dir dest = tryTo (zUp >=> link dir (matchName dest)) $ \w w' -> do
+  let w'' = find' (== focus w) Self w'
+  notify ("Linked: "++dir++" => "++dest) w''
 
 unlinks :: String -> Command
-unlinks dir = notifyResult (\w -> zUp w >>= unlink dir >>= find (focus w==) Self) (notify $ "Unlinked: "++dir)
+unlinks dir = tryTo (zUp >=> unlink dir) $ \w w' -> do
+  let w'' = find' (focus w==) Self w'
+  notify ("Unlinked: " ++ dir) w''
 
 say :: String -> Command
 say msg = notify ("You say \""++msg++"\"") >=> ((++" says \""++msg++"\"") . name . focus >>= notifyExcept)
@@ -191,24 +190,21 @@ evals s w = do
               Right v -> notify (show v) w >> return w
 
 evalIn :: String -> String -> Command
-evalIn l t w = case find (matchName t) Location w of
-  Left err -> notify err w
-  Right t' -> if w `hasRef` t' then evals l t' else notify "You aren't allowed to do that." w
+evalIn l t = tryTo (find (matchName t) Location) $ \w t' ->
+  if w `hasRef` t' then evals l t' else notify "You aren't allowed to do that." w
 
 takes :: String -> Command
-takes n w = case take (matchName n) w of
-  Left err -> notify err w
-  Right w' -> do notify ("You take " ++ (name $ focus w') ++ ".") w
-                 notifyExcept ((name $ focus w) ++ " takes " ++ (name $ focus w')) (zUp' w')
-                 notify ((name $ focus w) ++ " takes you!") w'
+takes n = tryTo (take $ matchName n) $ \w w' -> do
+  notify ("You take " ++ (name $ focus w') ++ ".") w
+  notifyExcept ((name $ focus w) ++ " takes " ++ (name $ focus w')) (zUp' w')
+  notify ((name $ focus w) ++ " takes you!") w'
 
 drops :: String -> Command
-drops n w = case drop (matchName n) w of
-  Left err -> notify err w
-  Right w' -> do notify ("You drop " ++ (name $ focus w') ++ ".") w               
-                 notifyExcept ((name $ focus w) ++ " drops " ++ (name $ focus w')) w
-                 invoke "looks" [Sworld w'] w'
-                 notify ((name $ focus w) ++ " drops you!") w'
+drops n = tryTo (drop $ matchName n) $ \w w' -> do
+  notify ("You drop " ++ (name $ focus w') ++ ".") w               
+  notifyExcept ((name $ focus w) ++ " drops " ++ (name $ focus w')) w
+  invoke "looks" [Sworld w'] w'
+  notify ((name $ focus w) ++ " drops you!") w'
 
 
 command :: GenParser Char st Command
