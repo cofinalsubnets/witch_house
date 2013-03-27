@@ -72,6 +72,15 @@ h1 {
   font-weight: normal;
 }
 
+h2 {
+  font-family: monospace;
+  color: #0d3;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1),
+               0 0 5px rgba(181, 232, 83, 0.6),
+               0 0 10px rgba(181, 232, 83, 0.4);
+  font-weight: normal;
+}
+
 h3 {
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1),
                0 0 5px rgba(181, 232, 83, 0.3),

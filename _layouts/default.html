@@ -3,14 +3,14 @@
 <!doctype html>
 <html>
   <head>
-    <title>{{ page.title }}</title>
+    <title>{{ site.title }} - {{ page.title }}</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" type="text/css" href="{{ site.url }}/css/wh.css">
   </head>
   <body>
     <div id="wh_title" class="centered">
       <h1>witch_house</h1>
-      <a href="{{ site.url }}/index.html">play</a> | <a href="{{ site.url }}/help.html">help</a>
+      <a href="{{ site.url }}/about.html">about</a> | <a href="{{ site.url }}/index.html">play</a> | <a href="{{ site.url }}/help.html">help</a>
     </div>
     {{ content }}
   </body>

@@ -4,4 +4,5 @@ server: false
 url: http://walpurgisriot.github.com/witch_house
 pygments: true
 ws_url: ws://ec2-54-244-180-87.us-west-2.compute.amazonaws.com
+title: witch_house
 
