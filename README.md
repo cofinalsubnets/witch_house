@@ -15,9 +15,10 @@ wisp
 Wisp is the little Lisp embedded in witch\_house. Its vocabulary is vaguely Scheme-like. It includes a superset of the following features:
 
 - garbage collection
+- tail call optimization
 - first-class functions with full lexical closures
 - variadic functions
 - macros
+- list destructuring
 - automatic currying of non-primitive functions and macros
-- tail call optimization
 
