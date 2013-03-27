@@ -65,6 +65,8 @@ data Sval = Sfixn   Integer
           | Shandle Handle
           | Sref    Int
           | Sworld  World
+          | Sfn     ([Sval] -> IO (Either String Sval))
+          | Spfn    ([Sval] -> IO (Either String Sval))
           -- special forms
           | SFbegin | SFquote | SFif | SFlambda | SFmacro | SFmerge
           | SFset | SFunset | SFqq | SFsplice | SFas | SFdef
@@ -94,6 +96,8 @@ instance Show Sval where
   show SFmacro         = "macro"
   show SFas            = "as"
   show SFmerge         = "msplice"
+  show (Sfn _)         ="#<sfn>"
+  show (Spfn _)        ="#<sfn>"
 
 instance Eq Sval where
   (Sfixn a)   == (Sfixn b)   = a == b

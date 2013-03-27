@@ -4,19 +4,19 @@ stl :: String
 stl = unlines $
   [ "(begin"
 
-  , "  (define (list . l) l)"
+  , "  (define (list & l) l)"
 
   , "  (define cond"
-  , "    (macro (case . cases)"
+  , "    (macro (& cases)"
   , "      (fold (lambda (l c)"
   , "              `(if ,(car c)"
   , "                   (begin @,(cdr c))"
   , "                   ,l))"
   , "            '(error \"cond: fell through\")"
-  , "            (reverse (cons case cases)))))"
+  , "            (reverse cases))))"
 
   , "  (define let"
-  , "    (macro (binds . body)"
+  , "    (macro (binds & body)"
   , "      `((lambda ,(map car binds) @,body) @,(map cadr binds))))"
 
   , "  (define (member e lst)"
@@ -35,13 +35,13 @@ stl = unlines $
   , "  (define (car l)"
   , "    (if (null? l)"
   , "        (error \"car: null list\")"
-  , "        (apply (lambda (h . t) h)"
+  , "        (apply (lambda (h & _) h)"
   , "               l)))"
 
   , "  (define (cdr l)"
   , "    (if (null? l)"
   , "        l"
-  , "        (apply (lambda (h . t) t)"
+  , "        (apply (lambda (_ & t) t)"
   , "               l)))"
 
   , "  (define (/= a b) (not (= a b)))"
@@ -49,16 +49,6 @@ stl = unlines $
   , "                       (not (< a b))))"
   , "  (define (>= a b) (or (= a b) (> a b)))"
   , "  (define (<= a b) (or (= a b) (< a b)))"
-
-  , "  (define (curry fn)"
-  , "    (define args '())"
-  , "    (define (inner . as)"
-  , "      (let ((cas (append args as)))"
-  , "        (cond ((= (length cas) (arity fn)) (apply fn cas))"
-  , "              ((> (length cas) (arity fn))"
-  , "               (error \"curry: too many arguments\"))"
-  , "              (#t (set! args cas) inner))))"
-  , "    inner)"
 
   , "  (define caar (comp car car))"
   , "  (define cadr (comp car cdr))"
@@ -98,8 +88,10 @@ stl = unlines $
   , "        (fold op (op acc (car l)) (cdr l))))"
 
   , "  (define (not v) (if v #f #t))"
-  , "  (define (and a b) (if a b a))"
-  , "  (define (or a b) (if a a b))"
+  , "  (define (&& a b) (if a b a))"
+  , "  (define (|| a b) (if a a b))"
+  , "  (define (and & ts) (fold && #t ts))"
+  , "  (define (or & ts) (fold || #f ts))"
 
   , "  (define (reverse l)"
   , "    (define (inner acc l)"
@@ -132,9 +124,9 @@ stl = unlines $
   , "              (append (cdr l1) l2))))"
 
   , "  (define (juxt f g)"
-  , "    (lambda (h . t)"
-  , "      (list (apply f (cons h t))"
-  , "            (apply g (cons h t)))))"
+  , "    (lambda (& t)"
+  , "      (list (apply f t)"
+  , "            (apply g t))))"
 
   , "  (define (join strs j)"
   , "    (fold (lambda (s1 s2) (cat s1 j s2)) (car strs) (cdr strs)))"

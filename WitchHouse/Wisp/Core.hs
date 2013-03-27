@@ -42,9 +42,11 @@ pushFrame f = do
 bind f k v = getFrame f >>= \(bs,p) -> H.insert env f (M.insert k v bs, p)
 unbind f k = getFrame f >>= \(bs,p) -> H.insert env f (M.delete k bs, p)
 
-lookup :: ByteString -> Maybe Int -> IO (Either String Sval)
-lookup s Nothing = return . Left $ "Unable to resolve symbol: " ++ unpack s
-lookup s (Just i) = getFrame i >>= \(binds,nxt) -> maybe (lookup s nxt) (return . return) $ M.lookup s binds
+lookup :: ByteString -> Int -> IO (Either String Sval)
+lookup n = lookup' n . Just
+  where
+    lookup' s Nothing = return . Left $ "Unable to resolve symbol: " ++ unpack s
+    lookup' s (Just i) = getFrame i >>= \(binds,nxt) -> maybe (lookup' s nxt) (return . return) $ M.lookup s binds
 
 bindings :: M.Map ByteString Sval
 bindings = M.fromList $
@@ -87,7 +89,7 @@ math op = Sprim $ tc (repeat tc_num) $ some _math
   where _math (h:t) _ = return $ foldM (s_num_op op) h t
 
 -- | predicate wrapper for variadic typechecking
-check p = Sprim $ \vs -> evalList vs >=> return . fmap (Sbool . all p)
+check p = Sprim $ \vs _ -> return . return . Sbool $ all p vs
 
 -- PRIMITIVE FUNCTIONS
 
@@ -95,11 +97,11 @@ check p = Sprim $ \vs -> evalList vs >=> return . fmap (Sbool . all p)
 p_str [s@(Sstring _)] _ = return (Right s)
 p_str [v] _ = return . Right . Sstring $ show v
 
-p_lt = lc 2 $ tc (repeat tc_num) $ \ns _ -> case ns of
-  [Sfixn a, Sfixn b] -> return . return . Sbool $ a < b
-  [Sfixn a, Sfloat b] -> return . return . Sbool $ fromIntegral a < b
-  [Sfloat a, Sfixn b] -> return . return . Sbool $ a < fromIntegral b
-  [Sfloat a, Sfloat b] -> return . return . Sbool $ a < b
+p_lt = lc 2 $ tc (repeat tc_num) $ \ns _ -> return . return . Sbool $ case ns of
+  [Sfixn a,  Sfixn b]  -> a < b
+  [Sfixn a,  Sfloat b] -> fromIntegral a < b
+  [Sfloat a, Sfixn b]  -> a < fromIntegral b
+  [Sfloat a, Sfloat b] -> a < b
 
 -- | equality
 p_eq vs _ = return . return . Sbool . and . zipWith (==) vs $ drop 1 vs
@@ -163,26 +165,43 @@ s_div s1 s2 = case (s1,s2) of
   _ -> Left $ "ERROR: /: bad type (expected numeric): " ++ show (Slist [s1,s2])
   where db0 = Left "ERROR: /: divide by zero"
 
+bindIn :: ByteString -> Sval -> Sval -> Sval
+bindIn s v (Ssym s') = if s == s' then v else Ssym s'
+bindIn s v l@(Slist (SFquote:_)) = l
+bindIn s v l@(Slist (SFqq:_)) = bindInQq s v l
+bindIn s v (Slist l) = Slist (map (bindIn s v) l)
+bindIn _ _ v = v
+
+bindInQq :: ByteString -> Sval -> Sval -> Sval
+bindInQq s v l@(Slist (SFsplice:_)) = bindIn s v l
+bindInQq s v (Slist l) = Slist (map (bindInQq s v) l)
+bindInQq _ _ v = v
+
 -- | Function application.
 apply :: Sval -> [Sval] -> Int -> IO (Either String Sval)
 apply sv vs i
  | tc_prim sv = transform sv vs i -- primitive fn application - the easy case!
- | tc_func sv || tc_macro sv = apply posArgs splat vs
+ | tc_func sv || tc_macro sv = app posArgs splat vs
  | otherwise = return  . Left $ "ERROR: apply: non-applicable value: " ++ show sv
   where
     (posArgs, splat) = break (== bs_splat) (params sv)
-    apply pos var sup
+    app pos var sup
 
       | not $ null var || length var == 2
       = return . Left $ "ERROR: apply: bad variadic parameter syntax: " ++ show (params sv)
 
-      | length pos > length sup || null var && length pos < length sup
+      | length pos > length sup && (not $ null sup)
+      = let (bs,ps') = splitAt (length sup) $ params sv
+            binds = zipWith bindIn bs sup
+            Slist b' = foldr ($) (Slist $ body sv) binds
+        in return . return $ sv{body = b', params = ps'}
+      | null var && length pos < length sup || null sup && (not $ null pos)
       = return . Left $ "ERROR: wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos)
 
       | otherwise = do
         let posV = pos `zip` vs
-            varV = if null var then [] else [(last var, Slist $ drop (length pos) vs)]
-            vars = varV ++ posV
+            vars = if null var then posV
+                   else posV ++ [(last var, Slist $ drop (length pos) vs)]
 
         n <- pushFrame (M.fromList vars, Just $ frameNo sv)
         eval (Slist $ SFbegin:(body sv)) n
@@ -190,7 +209,7 @@ apply sv vs i
 
 eval :: Sval -> Int -> IO (Either String Sval)
 eval v f
- | Ssym s <- v = lookup s (Just f)
+ | Ssym s <- v = lookup s f
  | Slist (o:vs) <- v = case o of
    SFbegin -> f_begin vs f >>= \res -> case res of
      Right thunk -> thunk ()
@@ -257,7 +276,7 @@ f_quasiq = lc 1 $ \[v] -> case v of
        m <- spliceL [v] f
        case sequence m of
          Right [Slist l'] -> liftM2 (++) (return $ map return l') (spliceL t f)
-         Right v -> liftM2 (:) (return $ Left $ "ERROR: msplice: bad merge syntax: " ++ show v) (spliceL t f)
+         Right v' -> liftM2 (:) (return $ Left $ "ERROR: msplice: bad merge syntax: " ++ show v') (spliceL t f)
          Left err -> liftM2 (:) (return $ Left err) (spliceL t f)
      | otherwise = liftM2 (:) (fmap (fmap Slist . sequence) $ spliceL l f) (spliceL t f)
     spliceL (v:t) f = liftM2 (:) (return $ return v) (spliceL t f)
@@ -289,10 +308,7 @@ f_set = lc 2 $ tc [tc_sym] $ \[Ssym s, xp] f ->
 f_unset = lc 1 $ tc [tc_sym] $ \[Ssym s] f ->
   findBinding s f >>= \f' -> case f' of
     Nothing -> return . Left $ "ERROR: unset!: free or immutable variable: " ++ unpack s
-    Just n -> do (b,_) <- getFrame n
-                 let v = b M.! s
-                 unbind n s
-                 return $ Right v
+    Just n -> unbind n s >> return (Right $ Slist [])
 
 findBinding :: ByteString -> Int -> IO (Maybe Int)
 findBinding nm f = do
@@ -302,5 +318,5 @@ findBinding nm f = do
             Nothing -> return Nothing
 
 -- bytestring constants
-bs_splat   = pack "."
+bs_splat   = pack "&"
 

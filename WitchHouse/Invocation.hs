@@ -11,9 +11,10 @@ import System.IO
 
 import WitchHouse.Types
 import WitchHouse.Persistence (connect, disconnect, loadWorld)
-import WitchHouse.Wisp (repl, bind)
+import WitchHouse.Wisp (evalWisp, toplevel, repl, bind)
 import WitchHouse.World
 import WitchHouse.Version
+import WitchHouse.Wisp.Test
 
 handleArgs :: [String] -> IO Options
 handleArgs args = case getOpt Permute options args of
@@ -24,6 +25,9 @@ options :: [OptDescr (Options -> IO Options)]
 options = [ Option "" ["cores"]
             (ReqArg setCores "N")
               "maximum number of processor cores to use"
+          , Option "r" ["run"]
+            (ReqArg runFile "FILE")
+              "run wisp from a file and exit"
           , Option "h" ["help"]
             (NoArg (\_ -> displayUsage >> exitSuccess))
               "print this message and exit"
@@ -58,6 +62,13 @@ options = [ Option "" ["cores"]
             (NoArg (\_ -> repl >> exitSuccess))
               "wisp REPL"
           ]
+
+runFile f opts = do
+  loadTestLib
+  t <- readFile f
+  r <- evalWisp (unlines ["(begin", t, ")"]) toplevel
+  case r of Right _ -> exitSuccess
+            Left err -> putStrLn err >> exitFailure
 
 loadDB :: FilePath -> Options -> IO Options
 loadDB f opts = do

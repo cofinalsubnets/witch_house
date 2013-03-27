@@ -99,7 +99,7 @@ bootstrap = do
 
 invoke :: String -> [Sval] -> World -> IO (Either String Sval)
 invoke f sv (Obj{objId = i},_) = do
-  lu <- lookup (pack f) (Just i)
+  lu <- lookup (pack f) i
   case lu of
     Left _ -> return . Left $ "I don't know what " ++ f ++ " means."
     Right fn -> eval (Slist (fn:sv)) i

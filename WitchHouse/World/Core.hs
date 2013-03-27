@@ -161,25 +161,25 @@ find' p s w = case find p s w of Right w' -> w'
 
 name :: Obj -> String
 name o = unsafePerformIO $ do
-  n <- lookup (pack "*name*") (Just $ objId o)
+  n <- lookup (pack "*name*") (objId o)
   return $ case n of Right (Sstring s) -> s
                      _ -> ""
 
 description :: Obj -> String
 description o = unsafePerformIO $ do
-  n <- lookup (pack "*desc*") (Just $ objId o)
+  n <- lookup (pack "*desc*") (objId o)
   return $ case n of Right (Sstring s) -> s
                      _ -> ""
 
 password :: Obj -> Maybe String
 password o = unsafePerformIO $ do
-  n <- lookup (pack "*password*") (Just $ objId o)
+  n <- lookup (pack "*password*") (objId o)
   return $ case n of Right (Sstring s) -> Just s
                      _ -> Nothing
 
 handle :: Obj -> Maybe Handle
 handle o = unsafePerformIO $ do
-  n <- lookup (pack "*handle*") (Just $ objId o)
+  n <- lookup (pack "*handle*") (objId o)
   return $ case n of Right (Shandle h) -> Just h
                      _ -> Nothing
 

@@ -69,7 +69,7 @@ wisp = optional whitespace *> expr <* optional whitespace
     sf s f = try $ string s >> whitespace >> return f
 
     symbol = (Ssym . pack) `fmap` ((:) <$> symC <*> many (digit <|> symC))
-      where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:<>")
+      where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:<>&$^|{}[]%~")
 
     number =  (Sfloat . read) `fmap` try dec
           <|> (Sfixn  . read) `fmap` try neg
