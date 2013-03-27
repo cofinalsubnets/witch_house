@@ -239,7 +239,12 @@ eval v f
       err -> return err
 
 evalList :: [Sval] -> Int -> IO (Either String [Sval])
-evalList vs f = liftM sequence $ mapM (flip eval f) vs
+evalList s = fmap sequence . el s
+  where 
+    el (v:vs) f = eval v f >>= \res -> case res of 
+      r@(Right _) -> liftM2 (:) (return r) (el vs f)
+      err -> return [err]
+    el [] _ = return []
 
 -- SPECIAL FORMS
 
