@@ -1,4 +1,4 @@
-(test
+(test "wisp tests"
 
   ("control - this test should fail" #f)
 

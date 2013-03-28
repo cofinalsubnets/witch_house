@@ -31,8 +31,12 @@ testLib = (lib,defs)
       , "                        (fail)))))"
       , "         ts)"
       , "    (println \"\")"
-      , "    (map println failures)"
-      , "    (null? failures)))"
+      , "    (if (null? failures)"
+      , "      (begin (println \"ok!\") #t)"
+      , "      (begin"
+      , "        (println (cat (string (length failures)) \" failure(s): \"))"
+      , "        (map println failures)"
+      , "        #f))))"
       , ")"
       ]
 
