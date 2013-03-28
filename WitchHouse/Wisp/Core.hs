@@ -166,7 +166,7 @@ s_div s1 s2 = case (s1,s2) of
   where db0 = Left "ERROR: /: divide by zero"
 
 bindIn :: ByteString -> Sval -> Sval -> Sval
-bindIn s v (Ssym s') = if s == s' then v else Ssym s'
+bindIn s v (Ssym s') = if s == s' then Slist [SFquote, v] else Ssym s'
 bindIn s v l@(Slist (SFquote:_)) = l
 bindIn s v l@(Slist (SFqq:_)) = bindInQq s v l
 bindIn s v (Slist l) = Slist (map (bindIn s v) l)

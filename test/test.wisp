@@ -8,7 +8,8 @@
   ("currying"
     (let ((ap (lambda (op a b) (op a b))))
       (and (= (+ 1 2) (((ap +) 1) 2))
-           (= "abc" ((ap cat) "a" "bc")))))
+           (= "abc" ((ap cat) "a" "bc"))
+           (= '(a (b c)) (((ap list) 'a) '(b c))))))
 
   ("let, currying, and scoping"
     (let ((a 1) (b 2) (c 3) (add3 (lambda (c d e) (+ c d e))))
