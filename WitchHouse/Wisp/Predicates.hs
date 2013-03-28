@@ -1,69 +1,90 @@
 module WitchHouse.Wisp.Predicates
-( tc
-, lc
-, some
+( guard
+, guard'
 , noop
-, tc_num
-, tc_str
-, tc_sym
-, tc_bool
-, tc_world
-, tc_ref
-, tc_handle
-, tc_list
-, tc_prim
-, tc_macro
-, tc_func
+, numP
+, strP
+, symP
+, boolP
+, worldP
+, refP
+, handleP
+, listP
+, primP
+, macroP
+, funcP
+, ArgSpec(..)
+, (|||)
+, (&&&)
 ) where
 
 import WitchHouse.Types
 
-tc_str (Sstring _) = True
-tc_str _ = False
+type Predicate = Sval -> Bool
 
-tc_num (Sfixn _)  = True
-tc_num (Sfloat _) = True
-tc_num _ = False
+strP (Sstring _) = True
+strP _ = False
 
-tc_bool (Sbool _) = True
-tc_bool _ = False
+numP (Sfixn _)  = True
+numP (Sfloat _) = True
+numP _ = False
 
-tc_func Sfunc{} = True
-tc_func _ = False
+boolP (Sbool _) = True
+boolP _ = False
 
-tc_macro Smacro{} = True
-tc_macro _ = False
+funcP Sfunc{} = True
+funcP _ = False
 
-tc_world (Sworld _) = True
-tc_world _ = False
+macroP Smacro{} = True
+macroP _ = False
 
-tc_ref (Sref _) = True
-tc_ref _ = False
+worldP (Sworld _) = True
+worldP _ = False
 
-tc_handle (Shandle _) = True
-tc_handle _ = False
+refP (Sref _) = True
+refP _ = False
 
-tc_sym (Ssym _) = True
-tc_sym _ = False
+handleP (Shandle _) = True
+handleP _ = False
 
-tc_list (Slist _) = True
-tc_list _ = False
+symP (Ssym _) = True
+symP _ = False
 
-tc_prim (Sprim _) = True
-tc_prim _ = False
+listP (Slist _) = True
+listP _ = False
 
-some fn [] = const . return $ Left "ERROR: no arguments given"
-some fn vs = fn vs
+primP (Sprim _) = True
+primP _ = False
 
-tc ts fn vs
-  | and $ zipWith ($) ts vs = fn vs
+guard' as tg = Sprim . guard as tg
+
+guard :: ArgSpec -> [Predicate] -> ([Sval] -> Int -> IO (Either String Sval)) -> [Sval] -> Int -> IO (Either String Sval)
+guard as tg fn vs
+  | Left err <- lc as vs = const . return $ Left err
+  | and $ zipWith ($) tg vs = fn vs
   | otherwise = const $ return typeError
   where typeError = Left $ "ERROR: bad type: " ++ show (Slist vs)
 
 noop = const True
 
-lc n fn vs
-  | length vs == n = fn vs 
-  | otherwise = const $ return argError
-  where argError = Left $ "ERROR: wrong number of arguments: " ++ show (length vs) ++ " for " ++ show n
+lc :: ArgSpec -> [Sval] -> Either String ()
+lc spec vs
+  | Any <- spec    = return ()
+  | Exactly n <- spec
+  , length vs == n = return ()
+  | AtMost n <- spec
+  , length vs <= n = return ()
+  | AtLeast n <- spec
+  , length vs >= n = return ()
+  | otherwise = Left $ "ERROR: wrong number of arguments: " ++ show (length vs) ++ " for " ++ show spec
+
+p1 ||| p2 = \s -> p1 s || p2 s
+p1 &&& p2 = \s -> p1 s && p2 s
+
+data ArgSpec = Exactly Int | AtLeast Int | AtMost Int | Any
+
+instance Show ArgSpec where
+  show (Exactly n) = "exactly "  ++ show n
+  show (AtLeast n) = "at least " ++ show n
+  show (AtMost n)  = "at most "  ++ show n
 

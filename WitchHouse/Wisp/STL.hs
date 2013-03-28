@@ -29,6 +29,8 @@ stl = unlines $
   , "        0"
   , "        (+ 1 (length (cdr l)))))"
 
+  , "  (define (flip f a b) (f b a))"
+
   , "  (define (comp f g)"
   , "    (lambda (n) (f (g n))))"
 

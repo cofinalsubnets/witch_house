@@ -103,19 +103,19 @@ invoke f sv (Obj{objId = i},_) = do
 evalOn :: String -> World -> IO (Either String Sval)
 evalOn s (Obj{objId = i},_) = evalWisp i s
 
-wisp_w_up = Sprim $ lc 1 $ tc [tc_world] $ \[Sworld w] _ ->
+wisp_w_up = guard' (Exactly 1) [worldP] $ \[Sworld w] _ ->
   return $ Sworld `fmap` exit w
 
-wisp_w_loc = Sprim $ lc 1 $ tc [tc_world] $ \[Sworld w] _ ->
+wisp_w_loc = guard' (Exactly 1) [worldP] $ \[Sworld w] _ ->
   return $ Sworld `fmap` zUp w
 
-wisp_w_dn = Sprim $ lc 2 $ tc [tc_world, tc_str] $ \[Sworld w, Sstring n] _ ->
+wisp_w_dn = guard' (Exactly 2) [worldP, strP] $ \[Sworld w, Sstring n] _ ->
   return $ Sworld `fmap` enter (matchName n) w
 
-wisp_w_contents = Sprim $ lc 1 $ tc [tc_world] $ \[Sworld w] _ ->
+wisp_w_contents = guard' (Exactly 1) [worldP] $ \[Sworld w] _ ->
   return $ Right . Slist . map Sworld . zDn $ w
 
-wisp_w_desc = Sprim $ lc 1 $ tc [tc_world] $ \[Sworld (f,_)] _ ->
+wisp_w_desc = guard' (Exactly 1) [worldP] $ \[Sworld (f,_)] _ ->
   return $ Right . Sstring . description $ f
 
 wisp_tell = Sprim $ \vs _ -> case vs of
@@ -126,20 +126,20 @@ wisp_tell = Sprim $ \vs _ -> case vs of
                                return . Right $ Sstring s
   l -> return . Left $ "bad arguments: " ++ show l
 
-wisp_tell_loc = Sprim $ lc 3 $ tc [tc_world, tc_str, tc_str] $
+wisp_tell_loc = guard' (Exactly 3) [worldP, strP, strP] $
   \[Sworld w, Sstring s, Sstring o] _ -> do
     notify s w >>= notifyExcept o >>= return . Right . Sworld
 
-wisp_exits = Sprim $ lc 1 $ tc [tc_world] $ \[Sworld (o,_)] _ ->
+wisp_exits = guard' (Exactly 1) [worldP] $ \[Sworld (o,_)] _ ->
   return . Right . Slist . map Sstring . M.keys $ exits o
 
-wisp_go = Sprim $ lc 2 $ tc [tc_str, tc_world] $ \[Sstring d, Sworld w] _ -> 
+wisp_go = guard' (Exactly 2) [strP, worldP] $ \[Sstring d, Sworld w] _ -> 
   return $ Sworld `fmap` go d w
 
-wisp_neighbour = Sprim $ lc 2 $ tc [tc_str, tc_world] $ \[Sstring n, Sworld w] _ ->
+wisp_neighbour = guard' (Exactly 2) [strP, worldP] $ \[Sstring n, Sworld w] _ ->
   return $ Sworld `fmap` find (matchName n) Location w
 
-wisp_w_name = Sprim $ lc 1 $ tc [tc_world] $ \[Sworld (f,_)] _ ->
+wisp_w_name = guard' (Exactly 1) [worldP] $ \[Sworld (f,_)] _ ->
   return $  Right . Sstring . name $ f
 
 {- haskell-level notification primitives -}

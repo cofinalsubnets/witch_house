@@ -15,7 +15,7 @@ module WitchHouse.Wisp.Core
 import Prelude hiding (lookup)
 import WitchHouse.Types
 import WitchHouse.Wisp.Predicates
-import Control.Monad
+import Control.Monad hiding (guard)
 import qualified Data.Map as M
 import qualified Data.HashTable.IO as H
 import Data.ByteString.Char8 (pack, unpack)
@@ -53,39 +53,39 @@ bindings = M.fromList $
   [ (pack "+",          math (+)   )
   , (pack "-",          math (-)   )
   , (pack "*",          math (*)   )
-  , (pack "/",          Sprim $ tc (repeat tc_num) $ some p_div )
+  , (pack "/",          guard' (AtLeast 1) (repeat numP) p_div )
   , (pack "=",          Sprim p_eq     )
   , (pack "pi",         Sfloat pi      )
-  , (pack "eval",       Sprim $ lc 1 $ eval . head)
-  , (pack "cat",        Sprim $ tc (repeat tc_str) p_cat)
-  , (pack "apply",      Sprim $ lc 2 p_apply)
-  , (pack "string",     Sprim $ lc 1 p_str )
-  , (pack "symbol",     Sprim $ tc [tc_str] p_sym )
-  , (pack "cons",       Sprim $ lc 2 $ tc [noop, tc_list] $ p_cons)
-  , (pack "int",        Sprim $ lc 1 $ tc [tc_num]  $ p_int)
-  , (pack "null?",      Sprim $ lc 1 $ tc [tc_list] $ p_null)
-  , (pack "error",      Sprim $ lc 1 $ tc [tc_str]  $ p_err)
-  , (pack "arity",      Sprim $ lc 1 $ tc [tc_func] $ p_arity)
-  , (pack "bool?",      check tc_bool  )
-  , (pack "string?",    check tc_str   )
-  , (pack "number?",    check tc_num   )
-  , (pack "world?",     check tc_world )
-  , (pack "func?",      check tc_func  )
-  , (pack "list?",      check tc_list  )
-  , (pack "symbol?",    check tc_sym   )
-  , (pack "primitive?", check tc_prim  )
-  , (pack "macro?",     check tc_macro )
-  , (pack "handle?",    check tc_handle)
-  , (pack "ref?",       check tc_ref   )
-  , (pack "<",          Sprim $ p_lt)
-  , (pack "make-ref",   Sprim $ lc 0 p_mk_ref       )
-  , (pack "make-self-ref", Sprim $ lc 0 p_mk_self_ref)
+  , (pack "eval",       guard' (Exactly 1) [] (eval . head))
+  , (pack "cat",        guard' Any (repeat strP) p_cat)
+  , (pack "apply",      guard' (Exactly 2) [] p_apply)
+  , (pack "string",     guard' (Exactly 1) [] p_str )
+  , (pack "symbol",     guard' Any [strP] p_sym )
+  , (pack "cons",       guard' (Exactly 2) [noop, listP] p_cons)
+  , (pack "int",        guard' (Exactly 1) [numP]  p_int)
+  , (pack "null?",      guard' (Exactly 1) [listP] p_null)
+  , (pack "error",      guard' (Exactly 1) [strP]  p_err)
+  , (pack "arity",      guard' (Exactly 1) [funcP] p_arity)
+  , (pack "bool?",      check boolP  )
+  , (pack "string?",    check strP   )
+  , (pack "number?",    check numP   )
+  , (pack "world?",     check worldP )
+  , (pack "func?",      check funcP  )
+  , (pack "list?",      check listP  )
+  , (pack "symbol?",    check symP   )
+  , (pack "primitive?", check primP  )
+  , (pack "macro?",     check macroP )
+  , (pack "handle?",    check handleP)
+  , (pack "ref?",       check refP   )
+  , (pack "<",          guard' (Exactly 2) (repeat numP) p_lt)
+  , (pack "make-ref",      guard' (Exactly 0) [] p_mk_ref     )
+  , (pack "make-self-ref", guard' (Exactly 0) [] p_mk_self_ref)
   ]
 
 -- PRIMITIVE FN COMBINATORS
 -- | variadic math operations. division is handled as a special case.
 math :: (forall a. Num a => a -> a -> a) -> Sval
-math op = Sprim $ tc (repeat tc_num) $ some _math
+math op = guard' (AtLeast 1) (repeat numP) _math
   where _math (h:t) _ = return $ foldM (s_num_op op) h t
 
 -- | predicate wrapper for variadic typechecking
@@ -97,7 +97,7 @@ check p = Sprim $ \vs _ -> return . return . Sbool $ all p vs
 p_str [s@(Sstring _)] _ = return (Right s)
 p_str [v] _ = return . Right . Sstring $ show v
 
-p_lt = lc 2 $ tc (repeat tc_num) $ \ns _ -> return . return . Sbool $ case ns of
+p_lt ns _ = return . return . Sbool $ case ns of
   [Sfixn a,  Sfixn b]  -> a < b
   [Sfixn a,  Sfloat b] -> fromIntegral a < b
   [Sfloat a, Sfixn b]  -> a < fromIntegral b
@@ -165,46 +165,31 @@ s_div s1 s2 = case (s1,s2) of
   _ -> Left $ "ERROR: /: bad type (expected numeric): " ++ show (Slist [s1,s2])
   where db0 = Left "ERROR: /: divide by zero"
 
-bindIn :: ByteString -> Sval -> Sval -> Sval
-bindIn s v (Ssym s') = if s == s' then Slist [SFquote, v] else Ssym s'
-bindIn s v l@(Slist (SFquote:_)) = l
-bindIn s v l@(Slist (SFqq:_)) = bindInQq s v l
-bindIn s v (Slist l) = Slist (map (bindIn s v) l)
-bindIn _ _ v = v
-
-bindInQq :: ByteString -> Sval -> Sval -> Sval
-bindInQq s v l@(Slist (SFsplice:_)) = bindIn s v l
-bindInQq s v (Slist l) = Slist (map (bindInQq s v) l)
-bindInQq _ _ v = v
-
 -- | Function application.
 apply :: Sval -> [Sval] -> Int -> IO (Either String Sval)
-apply sv vs i
- | tc_prim sv = transform sv vs i -- primitive fn application - the easy case!
- | tc_func sv || tc_macro sv = app posArgs splat vs
+apply sv sup i
+ | primP sv = transform sv sup i -- primitive fn application - the easy case!
+ | funcP ||| macroP $ sv = app
  | otherwise = return  . Left $ "ERROR: apply: non-applicable value: " ++ show sv
   where
-    (posArgs, splat) = break (== Ssym bs_splat) (params sv)
-    app pos var sup
-
-      | not $ null var || length var == 2
-      = return . Left $ "ERROR: apply: bad variadic parameter syntax: " ++ show (params sv)
-
-      | length pos > length sup && (not $ null sup)
-      = return $ do
-          let (bs, ps') = splitAt (length sup) $ params sv
-          kvs <- patM (Slist bs) (Slist sup)
-          let binds = map (\(k,v) -> bindIn k v) kvs
-              Slist b' = foldr ($) (Slist $ body sv) binds
-          return $ sv{body = b', params = ps'}
+    (pos, var) = break (== Ssym bs_splat) $ params sv
+    (bound, unbound) = if length sup >= length pos then (params sv,[])
+                       else splitAt (length sup) (params sv)
+    app
       | null var && length pos < length sup || null sup && (not $ null pos)
-      = return . Left $ "ERROR: wrong number of arguments: " ++ show (length sup) ++ " for " ++ show (length pos)
+      = return . Left . unwords $ 
+        ["ERROR: wrong number of arguments:"
+        , show (length sup)
+        , "for"
+        , show (length pos)
+        ]
 
-      | otherwise = case patM (Slist $ params sv) (Slist sup) of
+      | otherwise = case destructure (Slist bound) (Slist sup) of
         Left err -> return $ Left err
-        Right vars -> do
-          n <- pushFrame (M.fromList vars, Just $ frameNo sv)
-          eval (Slist $ SFbegin:(body sv)) n
+        Right kvs -> do
+          n <- pushFrame (M.fromList kvs, Just $ frameNo sv) 
+          case unbound of [] -> eval (Slist $ SFbegin:(body sv)) n
+                          _  -> return . return $ sv{params = unbound, frameNo = n}
 
 
 eval :: Sval -> Int -> IO (Either String Sval)
@@ -230,7 +215,7 @@ eval v f
 
   where
     _apply o vs = eval o f >>= \op -> case op of
-      Right op' -> if not $ tc_macro op' then evalList vs f >>= \vals ->
+      Right op' -> if not $ macroP op' then evalList vs f >>= \vals ->
                      case vals of Right vals' -> apply op' vals' f
                                   Left err -> return $ Left err
                    else apply op' vs f >>= \expn ->
@@ -253,7 +238,7 @@ f_begin sv f = evalList (init sv) f >>= \es -> case es of
   Left err -> return $ Left err
   _ -> return . Right . const $ eval (last sv) f
 
-f_as = lc 2 $ \[k,x] i ->
+f_as = guard (Exactly 2) [] $ \[k,x] i ->
   eval k i >>= \k' -> case k' of
     Right (Sref i') -> H.lookup env i' >>= maybe badFrame (const $ eval x i')
     Right v -> badType v
@@ -261,16 +246,16 @@ f_as = lc 2 $ \[k,x] i ->
   where badFrame  = return $ Left "ERROR: as: bad frame identifier"
         badType v = return . Left $ "ERROR: as: bad type (expected ref): " ++ show v
 
-f_if = lc 3 $ \[cond,y,n] f ->
+f_if = guard (Exactly 3) [] $ \[cond,y,n] f ->
   eval cond f >>= \v -> case v of
     Right (Sbool False) -> eval n f
     Right _             -> eval y f
     err                 -> return err
 
 
-f_quote = lc 1 $ const . return . Right . head
+f_quote = guard (Exactly 1) [] $ const . return . Right . head
 
-f_quasiq = lc 1 $ \[v] -> case v of
+f_quasiq = guard (Exactly 1) [] $ \[v] -> case v of
   Slist l -> spliceL l >=> return . fmap Slist . sequence
   sv -> const (return $ Right sv)
   where
@@ -288,10 +273,10 @@ f_quasiq = lc 1 $ \[v] -> case v of
 
 f_splice _ _ = return $ Left "ERROR: splice: splice outside of quasiquoted expression"
 
-f_lambda = some $ tc [tc_list] $ \((Slist ps):svs) ->
+f_lambda = guard (AtLeast 1) [listP] $ \((Slist ps):svs) ->
   return . return . Sfunc ps svs
 
-f_macro = some $ tc [tc_list] $ \((Slist ps):svs) ->
+f_macro = guard (AtLeast 1) [listP] $ \((Slist ps):svs) ->
   return . return . Smacro ps svs
 
 f_define vs f = case vs of
@@ -303,14 +288,14 @@ f_define vs f = case vs of
   _ -> return $ Left "ERROR: define: bad definition syntax"
 
 
-f_set = lc 2 $ tc [tc_sym] $ \[Ssym s, xp] f ->
+f_set = guard (Exactly 2) [symP] $ \[Ssym s, xp] f ->
   eval xp f >>= \xv -> case xv of
     Right v -> findBinding s f >>= \f' -> case f' of
       Nothing -> return . Left $ "ERROR: set!: free or immutable variable: " ++ unpack s
       Just n -> bind n s v >> return xv
     err -> return err
 
-f_unset = lc 1 $ tc [tc_sym] $ \[Ssym s] f ->
+f_unset = guard (Exactly 1) [symP] $ \[Ssym s] f ->
   findBinding s f >>= \f' -> case f' of
     Nothing -> return . Left $ "ERROR: unset!: free or immutable variable: " ++ unpack s
     Just n -> unbind n s >> return (Right $ Slist [])
@@ -323,19 +308,36 @@ findBinding nm f = do
             Nothing -> return Nothing
 
 -- bytestring constants
-bs_splat   = pack "&"
+bs_splat = pack "&"
 
-patM :: Sval -> Sval -> Either String [(ByteString, Sval)]
-patM (Ssym s) v = Right [(s,v)]
-patM (Slist l) (Slist v) 
+-- list destructuring
+destructure :: Sval -> Sval -> Either String [(ByteString, Sval)]
+destructure (Ssym s) v = Right [(s,v)]
+destructure (Slist l) (Slist v) 
   | (req, (_:o)) <- break (== Ssym bs_splat) l = do
     let ps = length req
-    pos <- patM (Slist req) (Slist $ take ps v)
-    case o of [s] -> fmap (pos ++) $ patM s (Slist $ drop ps v)
-              _ -> Left $ "Pattern error: bad variadic parameter syntax"
-  | length l == length v = fmap concat . sequence $ zipWith patM l v
-  | otherwise = Left $ "Pattern error: pattern length mismatch: " ++ show (length l) ++ " patterns, " ++ show (length v) ++ " values"
-patM l@(Slist _) v = Left $ "Pattern error: data mismatch: can't match " ++ show l ++ " with " ++ show v
-patM p _ = Left $ "Pattern error: illegal pattern: " ++ show p
-
+    pos <- destructure (Slist req) (Slist $ take ps v)
+    case o of [s] -> fmap (pos ++) $ destructure s (Slist $ drop ps v)
+              s -> Left . unwords $
+                [ "Pattern error: bad splat:"
+                , show (Slist l)
+                ]
+  | length l == length v = fmap concat . sequence $ zipWith destructure l v
+  | otherwise = Left . unwords $
+    [ "Pattern error: structure mismatch:"
+    , show (length l)
+    , "pattern(s),"
+    , show (length v)
+    , "value(s) in"
+    , show (Slist l)
+    , "<-"
+    , show (Slist v)
+    ]
+destructure l@(Slist _) v = Left . unwords $ 
+  [ "Pattern error: structure mismatch: can't match"
+  , show l
+  , "with"
+  , show v
+  ]
+destructure p _ = Left $ "Pattern error: illegal pattern: " ++ show p
 

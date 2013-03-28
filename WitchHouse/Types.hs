@@ -63,8 +63,14 @@ data Sval = Sfixn   Integer
           | Ssym    ByteString
           | Slist   [Sval]
           | Sbool   Bool
-          | Sfunc   { params :: [Sval], body :: [Sval], frameNo :: Int }
-          | Smacro  { params :: [Sval], body :: [Sval], frameNo :: Int }
+          | Sfunc   { params  :: [Sval]
+                    , body    :: [Sval]
+                    , frameNo :: Int
+                    }
+          | Smacro  { params  :: [Sval]
+                    , body    :: [Sval]
+                    , frameNo :: Int
+                    }
           | Sprim   { transform :: [Sval] -> Int -> IO (Either String Sval) }
           | Shandle Handle
           | Sref    Int
@@ -83,8 +89,8 @@ instance Show Sval where
   show (Ssym s)        = unpack s
   show (Sbool b)       = if b then "#t" else "#f"
   show (Slist l)       = "(" ++ (unwords . map show $ l) ++ ")"
-  show (Sfunc as b f)  = concat ["(lambda ", show $ Slist as, " ", unwords $ map show b, ") ;; ", show f]
-  show (Smacro as b f) = concat ["(macro ",  show $ Slist as, " ", unwords $ map show b, ") ;; ", show f]
+  show f@Sfunc{}       = "#<fn/" ++ show (length $ params f) ++ ">"
+  show m@Smacro{}      = "#<macro/" ++ show (length $ params m) ++ ">"
   show (Sprim _)       = "#<prim fn>"
   show (Sworld (f,_))  = "#<obj:" ++ show (objId $ f) ++ ">"
   show (Sref _)        = "#<ref>"

@@ -40,6 +40,6 @@ testLib = (lib,defs)
       , ")"
       ]
 
-t_print = Sprim $ lc 1 $ tc [tc_str] $ \[Sstring s] _ ->
+t_print = guard' (Exactly 1) [strP] $ \[Sstring s] _ ->
   putStr s >> return (return $ Sstring s)
 

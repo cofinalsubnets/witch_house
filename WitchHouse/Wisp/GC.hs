@@ -16,7 +16,7 @@ envGraph = do
   where es (n,(bs,p)) = ((), n, parent p ++ refs (M.elems bs))
         parent = maybe [] return
         refs = map frameNo . getRefs . Slist
-        getRefs (Slist l) = filter (\o -> tc_func o || tc_macro o) l ++ concatMap getRefs l
+        getRefs (Slist l) = filter (funcP ||| macroP) l ++ concatMap getRefs l
         getRefs _ = []
 
 -- | General case naive garbage collection. Drops all frames not reachable
