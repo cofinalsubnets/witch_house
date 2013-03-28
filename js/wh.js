@@ -39,7 +39,7 @@ $(document).ready(function() {
 
 function createSocket() {
   var s = new WebSocket("{{ site.ws_url}}");
-  s.onmessage = function (msg) { messages.show_message(msg.data.replace(/\n/g,"<br />")); };
+  s.onmessage = function (msg) { messages.show_message(msg.data); };
   s.onclose = function (msg) { messages.show_message("### connection closed ###"); };
   return s;
 }
