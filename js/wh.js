@@ -7,7 +7,7 @@ $(document).ready(function() {
     tagName: "div",
     template: function(t) {return t;},
     render: function(t) {
-      this.$el.html(this.template(t));
+      this.$el.text(this.template(t));
       this.$el.addClass("wh_msg");
       return this;
     }
