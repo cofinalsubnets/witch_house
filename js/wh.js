@@ -8,6 +8,7 @@ $(document).ready(function() {
     template: function(t) {return t;},
     render: function(t) {
       this.$el.text(this.template(t));
+      this.$el.html(this.$el.html().replace(/\n/,"<br />"));
       this.$el.addClass("wh_msg");
       return this;
     }
