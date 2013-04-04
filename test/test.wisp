@@ -5,14 +5,20 @@
   ("map"
     (= (map inc '(1 2 3)) '(2 3 4)))
 
+  ("fold"
+    (= (fold (flip cons) '() '(1 2 3 4 5)) '(5 4 3 2 1)))
+
+  ("filter"
+    (= (filter number? '(1 2 'a "wat" (make-ref))) '(1 2)))
+
   ("currying"
-    (let ((ap (lambda (op a b) (op a b))))
+    (let ((ap (fn (op a b) (op a b))))
       (and (= (+ 1 2) (((ap +) 1) 2))
-           (= "abc" ((ap cat) "a" "bc"))
+           (= "abc" ((ap str) "a" "bc"))
            (= '(a (b c)) (((ap list) 'a) '(b c))))))
 
   ("let, currying, and scoping"
-    (let ((a 1) (b 2) (c 3) (add3 (lambda (c d e) (+ c d e))))
+    (let ((a 1) (b 2) (c 3) (add3 (fn (c d e) (+ c d e))))
       (and (= a 1)
            (= b 2)
            (= c 3)
@@ -41,7 +47,6 @@
           (= '(4 5 6) d))))
 
   ("destructuring with currying"
-   (let ((f (lambda (a (b & c)) (list a b c))))
-     (= '(1 2 (3)) ((f 1) '(2 3)))))
-  )
+   (let ((f (fn (a (b & c)) (list a b c))))
+     (= '(1 2 (3)) ((f 1) '(2 3))))))
 

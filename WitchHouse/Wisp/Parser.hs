@@ -6,10 +6,10 @@ import Text.ParserCombinators.Parsec
 import Control.Applicative hiding ((<|>), many, optional)
 import Data.ByteString.Char8 (pack)
 
-parseWisp :: String -> Either ParseError Sval
+parseWisp :: String -> Either ParseError Val
 parseWisp = parse wisp ""
 
-wisp :: GenParser Char st Sval
+wisp :: GenParser Char st Val
 wisp = optional whitespace *> expr <* optional whitespace
   where
 
@@ -19,19 +19,19 @@ wisp = optional whitespace *> expr <* optional whitespace
 
     nakedExpr = sexp <|> atom
 
-    quotedExpr = (\v -> Slist [SFquote, v]) `fmap` (quote *> expr)
+    quotedExpr = (\v -> Lst [SFquote, v]) `fmap` (quote *> expr)
       where quote = char '\''
 
-    quasiquotedExpr = (\v -> Slist [SFqq, v]) `fmap` (qquote *> expr)
+    quasiquotedExpr = (\v -> Lst [SFqq, v]) `fmap` (qquote *> expr)
       where qquote = char '`'
 
-    splicedExpr = (\v -> Slist [SFsplice, v]) `fmap` (splice *> expr)
+    splicedExpr = (\v -> Lst [SFsplice, v]) `fmap` (splice *> expr)
       where splice = char ','
 
-    mergedExpr = (\v -> Slist [SFmerge, v]) `fmap` (splice *> expr)
+    mergedExpr = (\v -> Lst [SFmerge, v]) `fmap` (splice *> expr)
       where splice = char '@'
 
-    sexp = fmap Slist $ char '(' *> optional wsOrComment *> (fm <|> ls) <* char ')'
+    sexp = fmap Lst $ char '(' *> optional wsOrComment *> (fm <|> ls) <* char ')'
     fm = (:) <$> specialForm <*> ls
     ls = expr `sepEndBy` wsOrComment
 
@@ -45,7 +45,7 @@ wisp = optional whitespace *> expr <* optional whitespace
 
     escaped c r = try $ string ['\\',c] >> return r
 
-    str = Sstring `fmap` (char '"' *> many stringContents <* char '"')
+    str = Str `fmap` (char '"' *> many stringContents <* char '"')
       where stringContents =  escaped '"' '"'
                           <|> escaped 'n' '\n'
                           <|> escaped 'r' '\r'
@@ -54,31 +54,31 @@ wisp = optional whitespace *> expr <* optional whitespace
                           <|> noneOf "\\\""
 
     specialForm =  sf "if" SFif
-               <|> sf "begin" SFbegin
-               <|> sf "quote" SFquote
-               <|> sf "lambda" SFlambda
-               <|> sf "define" SFdef
+               <|> sf "do" SFbegin
+               <|> sf "qt" SFquote
+               <|> sf "fn" SFlambda
+               <|> sf "df" SFdef
                <|> sf "as" SFas
-               <|> sf "macro" SFmacro
-               <|> sf "set!" SFset
-               <|> sf "unset!" SFunset
-               <|> sf "quasiquote" SFqq
-               <|> sf "splice" SFsplice
-               <|> sf "msplice" SFmerge
+               <|> sf "mfn" SFmacro
+               <|> sf "set" SFset
+               <|> sf "undf" SFunset
+               <|> sf "qq" SFqq
+               <|> sf "sp" SFsplice
+               <|> sf "msp" SFmerge
 
     sf s f = try $ string s >> whitespace >> return f
 
-    symbol = (Ssym . pack) `fmap` ((:) <$> symC <*> many (digit <|> symC))
+    symbol = (Sym . pack) `fmap` ((:) <$> symC <*> many (digit <|> symC))
       where symC = oneOf (['a'..'z'] ++ ['A'..'Z'] ++ "_+-=*/.!?:<>&$^|{}[]%~")
 
-    number =  (Sfloat . read) `fmap` try dec
-          <|> (Sfixn  . read) `fmap` try neg
-          <|> (Sfixn  . read) `fmap` pos
+    number =  (Flt . read) `fmap` try dec
+          <|> (Int  . read) `fmap` try neg
+          <|> (Int  . read) `fmap` pos
 
       where pos = many1 digit
             neg = (:) <$> char '-' <*> pos
             dec = (++) <$> (pos <|> neg) <*> ((:) <$> char '.' <*> pos)
 
-    true = Sbool `fmap` (try (string "#t") >> return True)
-    false = Sbool `fmap` (try (string "#f") >> return False)
+    true = Bln `fmap` (try (string "#t") >> return True)
+    false = Bln `fmap` (try (string "#f") >> return False)
 

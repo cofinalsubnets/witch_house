@@ -76,9 +76,9 @@ loadWorld conn = do
                             let l' = case fromSql l :: Maybe Int of Just k -> k
                                                                     Nothing -> -1
                                 f = objId o
-                            bind f (pack "*name*")     . Sstring $ fromSql n
-                            bind f (pack "*password*") . Sstring $ fromSql p
-                            bind f (pack "*desc*")     . Sstring $ fromSql d
+                            bind f (pack "*name*")     . Str $ fromSql n
+                            bind f (pack "*password*") . Str $ fromSql p
+                            bind f (pack "*desc*")     . Str $ fromSql d
                             return $ (fromSql i, l', o{start = fromSql r})
         _ -> error "loadWorld: malformed node"
 

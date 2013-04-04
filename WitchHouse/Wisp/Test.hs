@@ -9,37 +9,37 @@ testLib = (lib,defs)
   where
     lib = [ (pack "print", t_print) ]
     defs = unlines $
-      [ "(begin"
-      , "  (define (colorize color s)"
-      , "    (cat color s \"\x1b[0m\"))"
+      [ "(do"
+      , "  (dfn colorize (color s)"
+      , "    (str color s \"\x1b[0m\"))"
 
-      , "  (define red  \"\x1b[31m\")"
-      , "  (define green  \"\x1b[32m\")"
-      , "  (define (println s) (print (cat s \"\\n\")))"
-      , "  (define test (macro (suite & ts)"
+      , "  (df red  \"\x1b[31m\")"
+      , "  (df green  \"\x1b[32m\")"
+      , "  (dfn println (s) (print (str s \"\\n\")))"
+      , "  (dfm test (suite & ts)"
       , "    (if (list? suite)"
-      , "        (set! ts (cons suite ts))"
-      , "        (println (cat \"Running \" suite \" ...\")))"
-      , "    (define (pass) (print (colorize green \".\")))"
-      , "    (define (fail) (print (colorize red \"F\")))"
-      , "    (define failures '())"
-      , "    (map (lambda (x)"
-      , "           (let ((doc (car x)) (t (cadr x)))"
+      , "        (set ts (cons suite ts))"
+      , "        (println (str \"Running \" suite \" ...\")))"
+      , "    (dfn pass () (print (colorize green \".\")))"
+      , "    (dfn fail () (print (colorize red \"F\")))"
+      , "    (df failures '())"
+      , "    (map (fn (x)"
+      , "           (let (((doc t) x))"
       , "             (if (eval t)"
       , "                 (pass)"
-      , "                 (begin (set! failures (cons doc failures))"
-      , "                        (fail)))))"
+      , "                 (do (set failures (cons doc failures))"
+      , "                     (fail)))))"
       , "         ts)"
       , "    (println \"\")"
       , "    (if (null? failures)"
-      , "      (begin (println \"ok!\") #t)"
-      , "      (begin"
-      , "        (println (cat (string (length failures)) \" failure(s): \"))"
+      , "      (do (println \"ok!\") #t)"
+      , "      (do"
+      , "        (println (str (length failures) \" failure(s): \"))"
       , "        (map println failures)"
-      , "        #f))))"
+      , "        #f)))"
       , ")"
       ]
 
-t_print = guard' (Exactly 1) [strP] $ \[Sstring s] _ ->
-  putStr s >> return (return $ Sstring s)
+t_print = Primitive $ taking (Exactly 1 strings) $ \[Str s] _ ->
+  putStr s >> return (return $ Str s)
 

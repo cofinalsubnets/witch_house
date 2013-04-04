@@ -11,7 +11,7 @@ module WitchHouse.World.Interop
 import WitchHouse.Types
 import WitchHouse.World.Core
 import WitchHouse.Wisp
-import WitchHouse.Wisp.Core (eval)
+import WitchHouse.Wisp.Core (eval, pure)
 import WitchHouse.Wisp.Predicates
 import Data.List (delete)
 import Prelude hiding (lookup)
@@ -21,9 +21,9 @@ import System.IO (hPutStrLn, hFlush)
 import Data.ByteString.Char8 (pack)
 
 worldLib :: Module
-worldLib = (primitives, defs)
+worldLib = (prims, defs)
   where
-    primitives =
+    prims =
       [ (pack "tell", wisp_tell)
       , (pack "tell-room", wisp_tell_loc)
       , (pack "contents", wisp_w_contents)
@@ -38,38 +38,38 @@ worldLib = (primitives, defs)
       ]
 
     defs = unlines $
-      [ "(begin"
+      [ "(do"
 
-      , "  (define (take w)"
+      , "  (dfn take (w)"
       , "    (enter"
-      , "      (tell-room (cat \"You take \" *name* \".\")"
-      , "                   (cat (name w) \" takes \" *name* \".\")"
+      , "      (tell-room (str \"You take \" *name* \".\")"
+      , "                   (str (name w) \" takes \" *name* \".\")"
       , "                   w)))"
       
-      , "  (define (drop w)"
+      , "  (dfn drop (w)"
       , "    (tell-room (exit w)"
-      , "               (cat \"You drop \" *name* \".\")"
-      , "               (cat (name w) \" drops \" *name* \".\")))"
+      , "               (str \"You drop \" *name* \".\")"
+      , "               (str (name w) \" drops \" *name* \".\")))"
 
-      , "  (define (exit p)"
+      , "  (dfn exit (p)"
       , "    (let ((new (w-up p)))"
-      , "      (tell-room p \"\" (cat (name p) \" leaves.\"))"
-      , "      (tell-room new \"\" (cat (name p) \" arrives.\"))"
+      , "      (tell-room p \"\" (str (name p) \" leaves.\"))"
+      , "      (tell-room new \"\" (str (name p) \" arrives.\"))"
       , "      (look new)))"
 
-      , "  (define (look p)"
+      , "  (dfn look (p)"
       , "    (tell p (join (append (list (name (location p))"
       , "                                (desc (location p)))"
-      , "                          (map (lambda (i) (cat (name i) \" is here.\"))"
-      , "                               (filter (lambda (t) (not (= t p)))"
+      , "                          (map (fn (i) (str (name i) \" is here.\"))"
+      , "                               (filter (fn (t) (not (= t p)))"
       , "                                       (contents (location p)))))"
       , "                  \"\n\")))"
 
 
-      , "  (define (whoami w)"
+      , "  (dfn whoami (w)"
       , "    (tell w (name w)))"
 
-      , "  (define (inventory me)"
+      , "  (dfn inventory (me)"
       , "    (let ((cs (contents me)))"
       , "      (if (null? cs)"
       , "          (tell me \"You aren't carrying anything.\")"
@@ -77,7 +77,7 @@ worldLib = (primitives, defs)
       , "                              (map name cs))"
       , "                           \"\n\")))))"
 
-      , "  (define (exits me)"
+      , "  (dfn exits (me)"
       , "    (let ((xs (loc-exits (location me))))"
       , "      (if (null? xs)"
       , "          (tell me \"There are no exits from your current location.\")"
@@ -86,61 +86,71 @@ worldLib = (primitives, defs)
       , "                           \"\n\")))))"
 
       
-      , "  (define (examine w)"
+      , "  (dfn examine (w)"
       , "    (tell w *desc*))"
 
       , ")"
       ]
 
 
-invoke :: String -> [Sval] -> World -> IO (Either String Sval)
+invoke :: String -> [Val] -> World -> IO (Either String Val)
 invoke f sv (Obj{objId = i},_) = do
   lu <- lookup (pack f) i
   case lu of
     Left _ -> return . Left $ "I don't know what " ++ f ++ " means."
-    Right fn -> eval (Slist (fn:sv)) i
+    Right fn -> eval (Lst (fn:sv)) i
 
-evalOn :: String -> World -> IO (Either String Sval)
+evalOn :: String -> World -> IO (Either String Val)
 evalOn s (Obj{objId = i},_) = evalWisp i s
 
-wisp_w_up = guard' (Exactly 1) [worldP] $ \[Sworld w] _ ->
-  return $ Sworld `fmap` exit w
+wisp_w_up = Primitive
+          $ taking (Exactly 1 worlds)
+          $ \[Wd w] _ -> return $ Wd `fmap` exit w
 
-wisp_w_loc = guard' (Exactly 1) [worldP] $ \[Sworld w] _ ->
-  return $ Sworld `fmap` zUp w
+wisp_w_loc = Primitive
+           $ taking (Exactly 1 worlds)
+           $ \[Wd w] _ -> return $ Wd `fmap` zUp w
 
-wisp_w_dn = guard' (Exactly 2) [worldP, strP] $ \[Sworld w, Sstring n] _ ->
-  return $ Sworld `fmap` enter (matchName n) w
+wisp_w_dn = Primitive
+          $ taking (Exactly 2 [world, string])
+          $ \[Wd w, Str n] _ -> return $ Wd `fmap` enter (matchName n) w
 
-wisp_w_contents = guard' (Exactly 1) [worldP] $ \[Sworld w] _ ->
-  return $ Right . Slist . map Sworld . zDn $ w
+wisp_w_contents = Primitive
+                $ taking (Exactly 1 worlds)
+                $ \[Wd w] _ -> return $ Right . Lst . map Wd . zDn $ w
 
-wisp_w_desc = guard' (Exactly 1) [worldP] $ \[Sworld (f,_)] _ ->
-  return $ Right . Sstring . description $ f
+wisp_w_desc = Primitive
+            $ taking (Exactly 1 worlds)
+            $ \[Wd (f,_)] _ -> return $ Right . Str . description $ f
 
-wisp_tell = Sprim $ \vs _ -> case vs of
-  [Sworld w, Sstring s] -> do rw <- notify s w
-                              return . Right . Sworld $ rw
-  [Shandle h, Sstring s] -> do hPutStrLn h s
-                               hFlush h
-                               return . Right $ Sstring s
+wisp_tell = Primitive $ \vs _ -> case vs of
+  [Wd w, Str s] -> notify s w >>= return . Right . Wd
+  [Prt h, Str s] -> do hPutStrLn h s
+                       hFlush h
+                       return . Right $ Str s
   l -> return . Left $ "bad arguments: " ++ show l
 
-wisp_tell_loc = guard' (Exactly 3) [worldP, strP, strP] $
-  \[Sworld w, Sstring s, Sstring o] _ -> do
-    notify s w >>= notifyExcept o >>= return . Right . Sworld
+wisp_tell_loc = Primitive
+              $ taking (Exactly 3 [world, string, string])
+              $ \[Wd w, Str s, Str o] _ -> notify s w >>= notifyExcept o >>= return . return . Wd
 
-wisp_exits = guard' (Exactly 1) [worldP] $ \[Sworld (o,_)] _ ->
-  return . Right . Slist . map Sstring . M.keys $ exits o
+wisp_exits = Primitive
+           $ taking (Exactly 1 worlds)
+           $ pure
+           $ \[Wd (o,_)] _ -> Lst . map Str . M.keys $ exits o
 
-wisp_go = guard' (Exactly 2) [strP, worldP] $ \[Sstring d, Sworld w] _ -> 
-  return $ Sworld `fmap` go d w
+wisp_go = Primitive
+        $ taking (Exactly 2 [string, world])
+        $ \[Str d, Wd w] _ -> return $ Wd `fmap` go d w
 
-wisp_neighbour = guard' (Exactly 2) [strP, worldP] $ \[Sstring n, Sworld w] _ ->
-  return $ Sworld `fmap` find (matchName n) Location w
+wisp_neighbour = Primitive
+               $ taking (Exactly 2 [string, world])
+               $ \[Str n, Wd w] _ -> return $ Wd `fmap` find (matchName n) Location w
 
-wisp_w_name = guard' (Exactly 1) [worldP] $ \[Sworld (f,_)] _ ->
-  return $  Right . Sstring . name $ f
+wisp_w_name = Primitive
+            $ taking (Exactly 1 worlds)
+            $ pure
+            $ \[Wd (f,_)] _ -> Str $ name f
 
 {- haskell-level notification primitives -}
 

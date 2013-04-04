@@ -13,10 +13,10 @@ envGraph :: IO (Graph, (Vertex -> ((), Int, [Int])), (Int -> Maybe Vertex))
 envGraph = do
   frames <- H.toList env
   return . graphFromEdges $ map es frames
-  where es (n,(bs,p)) = ((), n, parent p ++ refs (M.elems bs))
+  where es (n,(bs,p)) = ((), n, parent p ++ rs (M.elems bs))
         parent = maybe [] return
-        refs = map frameNo . getRefs . Slist
-        getRefs (Slist l) = filter (funcP ||| macroP) l ++ concatMap getRefs l
+        rs = map frameNo . getRefs . Lst
+        getRefs (Lst l) = filter (function ||| macro) l ++ concatMap getRefs l
         getRefs _ = []
 
 -- | General case naive garbage collection. Drops all frames not reachable

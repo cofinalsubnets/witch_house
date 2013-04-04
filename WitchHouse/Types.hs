@@ -6,10 +6,13 @@ module WitchHouse.Types
 , World
 , WT
 , Scope(..)
-, Sval(..)
+, Val(..)
 , Frame
 , Module
 , mempty
+, FrameNo
+, Env
+, WispFn
 ) where
 
 import Data.Map (Map)
@@ -18,6 +21,7 @@ import Data.Function (on)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (unpack)
 import Data.Monoid
+import Data.HashTable.IO (BasicHashTable)
 
 -- command line options
 data Options = Options { portNo       :: Int
@@ -53,47 +57,46 @@ data Scope = Self
 
 -- TYPES FOR WISP
 
-type Frame = (Map ByteString Sval, Maybe Int)
-type Module = ([(ByteString, Sval)], String)
+type Frame = (Map ByteString Val, Maybe FrameNo)
+type Env = BasicHashTable FrameNo Frame
+type Module = ([(ByteString, Val)], String)
+type FrameNo = Int
+type WispFn = Params -> FrameNo -> Result
+type Result = IO (Either String Val)
+type Params = [Val]
 
 -- type for wisp values
-data Sval = Sfixn   Integer
-          | Sfloat  Double
-          | Sstring String
-          | Ssym    ByteString
-          | Slist   [Sval]
-          | Sbool   Bool
-          | Sfunc   { params  :: [Sval]
-                    , body    :: [Sval]
-                    , frameNo :: Int
-                    }
-          | Smacro  { params  :: [Sval]
-                    , body    :: [Sval]
-                    , frameNo :: Int
-                    }
-          | Sprim   { transform :: [Sval] -> Int -> IO (Either String Sval) }
-          | Shandle Handle
-          | Sref    Int
-          | Sworld  World
-          | Sfn     ([Sval] -> IO (Either String Sval))
-          | Spfn    ([Sval] -> IO (Either String Sval))
-          -- special forms
-          | SFbegin | SFquote | SFif | SFlambda | SFmacro | SFmerge
-          | SFset | SFunset | SFqq | SFsplice | SFas | SFdef
+data Val = Int  Integer
+         | Flt  Double
+         | Str  String
+         | Sym  ByteString
+         | Lst [Val]
+         | Bln Bool
+         | Fn   { params  :: [Val]
+                , body    :: [Val]
+                , frameNo :: Int
+                , isMacro :: Bool
+                }
+         | Primitive { transform :: [Val] -> Int -> IO (Either String Val) }
+         | Prt Handle
+         | Ref  Int
+         | Wd World
+         -- special forms
+         | SFbegin | SFquote | SFif | SFlambda | SFmacro | SFmerge
+         | SFset | SFunset | SFqq | SFsplice | SFas | SFdef
 
-instance Show Sval where
-  show (Sfixn n)       = show n
-  show (Sfloat n)      = show n
-  show (Sstring s)     = show s
-  show (Shandle h)     = show h
-  show (Ssym s)        = unpack s
-  show (Sbool b)       = if b then "#t" else "#f"
-  show (Slist l)       = "(" ++ (unwords . map show $ l) ++ ")"
-  show f@Sfunc{}       = "#<fn/" ++ show (length $ params f) ++ ">"
-  show m@Smacro{}      = "#<macro/" ++ show (length $ params m) ++ ">"
-  show (Sprim _)       = "#<prim fn>"
-  show (Sworld (f,_))  = "#<obj:" ++ show (objId $ f) ++ ">"
-  show (Sref _)        = "#<ref>"
+instance Show Val where
+  show (Int n)       = show n
+  show (Flt n)      = show n
+  show (Str s)     = show s
+  show (Prt h)     = show h
+  show (Sym s)        = unpack s
+  show (Bln b)       = if b then "#t" else "#f"
+  show (Lst l)       = "(" ++ (unwords . map show $ l) ++ ")"
+  show Fn{params = p, isMacro = m} = "#<" ++ (if m then "m" else "") ++ "fn/" ++ show (length p) ++ ">"
+  show (Primitive _)   = "#<fn/prim>"
+  show (Wd _)          = "#<obj>"
+  show (Ref _)         = "#<ref>"
   show SFbegin         = "begin"
   show SFqq            = "quasiquote"
   show SFquote         = "quote"
@@ -106,25 +109,22 @@ instance Show Sval where
   show SFmacro         = "macro"
   show SFas            = "as"
   show SFmerge         = "msplice"
-  show (Sfn _)         ="#<sfn>"
-  show (Spfn _)        ="#<sfn>"
 
-instance Eq Sval where
-  (Sfixn a)   == (Sfixn b)   = a == b
-  (Sfixn a)   == (Sfloat b)  = fromIntegral a == b
-  (Sfloat a)  == (Sfixn b)   = a == fromIntegral b
-  (Sfloat a)  == (Sfloat b)  = a == b
-  (Sstring a) == (Sstring b) = a == b
-  (Sbool a)   == (Sbool b)   = a == b
-  (Ssym a)    == (Ssym b)    = a == b
-  (Slist a)   == (Slist b)   = a == b
-  (Shandle a) == (Shandle b) = a == b
-  (Sref a)    == (Sref b)    = a == b
+instance Eq Val where
+  Int a == Int b = a == b
+  Int a == Flt b = fromIntegral a == b
+  Flt a == Int b = a == fromIntegral b
+  Flt a == Flt b = a == b
+  Str a == Str b = a == b
+  Bln a == Bln b = a == b
+  Sym a == Sym b = a == b
+  Lst a == Lst b = a == b
+  Prt a == Prt b = a == b
+  Ref a == Ref b = a == b
 
-  (Sworld (a,_))  == (Sworld (b,_))  = objId a == objId b
+  Wd (a,_)  == Wd (b,_)  = objId a == objId b
 
-  (Sfunc a b c)  == (Sfunc d e f)  = (a,b,c) == (d,e,f)
-  (Smacro a b c) == (Smacro d e f) = (a,b,c) == (d,e,f)
+  Fn a b c d  == Fn e f g h  = (a,b,c,d) == (e,f,g,h)
 
   _ == _ = False
 

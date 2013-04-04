@@ -52,7 +52,7 @@ repl = loop `catch` eof
                               Right v -> putStr (show v) >> loop
         eof x = if isEOFError x then return () else ioError x
 
-evalWisp :: Int -> String -> IO (Either String Sval)
+evalWisp :: Int -> String -> IO (Either String Val)
 evalWisp f s = case parseWisp s of
   Right sv -> do v <- eval sv f
                  return v

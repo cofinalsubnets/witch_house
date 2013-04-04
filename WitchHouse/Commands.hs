@@ -80,15 +80,15 @@ help = notify helpMsg
 
 send :: String -> Command
 send actn w = do
-  res <- invoke actn [Sworld w] w
+  res <- invoke actn [Wd w] w
   case res of Left err -> notify err w
-              Right (Sworld w') -> return w'
+              Right (Wd w') -> return w'
               Right _ -> return w
 
 send2 op targ = tryTo (find (matchName targ) Location) $ \w w' -> do
-  res <- invoke op [Sworld w] w'
+  res <- invoke op [Wd w] w'
   case res of Left err -> notify err w
-              Right (Sworld w'') -> return w''
+              Right (Wd w'') -> return w''
               Right _ -> return w
 
 bindings :: Command
@@ -128,22 +128,22 @@ addRef (Obj{objId = f},_) i = do
   let refsym = pack "*refs*"
   (bs,_) <- getFrame f
   bind f refsym $ case M.lookup refsym bs of
-    Just (Slist l) -> Slist $ (Sref i):l
-    _              -> Slist [Sref i]
+    Just (Lst l) -> Lst $ (Ref i):l
+    _              -> Lst [Ref i]
 
-addBind :: World -> Sval -> IO ()
+addBind :: World -> Val -> IO ()
 addBind (Obj{objId = f},_) v = do
   let bindsym = pack "*shared-bindings*"
   (bs,_) <- getFrame f
   bind f bindsym $ case M.lookup bindsym bs of
-    Just (Slist l) -> Slist $ v:l
-    _              -> Slist [v]
+    Just (Lst l) -> Lst $ v:l
+    _              -> Lst [v]
 
 hasRef :: World -> World -> Bool
 (Obj{objId = f1},_) `hasRef` (Obj{objId = f2},_) = unsafePerformIO $ do
   (bs,_) <- getFrame f1
   case M.lookup (pack "*refs*") bs of
-    Just (Slist l) -> return $ Sref f2 `elem` l
+    Just (Lst l) -> return $ Ref f2 `elem` l
     _ -> return False
 
 shareBinding :: String -> String -> Command
@@ -207,7 +207,7 @@ drops :: String -> Command
 drops n = tryTo (drop $ matchName n) $ \w w' -> do
   notify ("You drop " ++ (name $ focus w') ++ ".") w               
   notifyExcept ((name $ focus w) ++ " drops " ++ (name $ focus w')) w
-  invoke "looks" [Sworld w'] w'
+  invoke "looks" [Wd w'] w'
   notify ((name $ focus w) ++ " drops you!") w'
 
 

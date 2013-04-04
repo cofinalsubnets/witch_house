@@ -1,90 +1,124 @@
 module WitchHouse.Wisp.Predicates
-( guard
-, guard'
-, noop
-, numP
-, strP
-, symP
-, boolP
-, worldP
-, refP
-, handleP
-, listP
-, primP
-, macroP
-, funcP
+( taking
+, anyValue
+, number
+, string
+, symbol
+, bool
+, world
+, ref
+, port
+, list
+, primitive
+, macro
+, function
+, applicable
+, integer
+, float
+, strings
+, numbers
+, integers
+, floats
+, bools
+, functions
+, macros
+, worlds
+, refs
+, ports
+, symbols
+, lists
+, primitives
+, arguments
 , ArgSpec(..)
 , (|||)
-, (&&&)
 ) where
 
 import WitchHouse.Types
 
-type Predicate = Sval -> Bool
+type Pred = Val -> Bool
 
-strP (Sstring _) = True
-strP _ = False
+anyValue = const True
 
-numP (Sfixn _)  = True
-numP (Sfloat _) = True
-numP _ = False
+string (Str _) = True
+string _ = False
 
-boolP (Sbool _) = True
-boolP _ = False
+integer (Int _) = True
+integer _ = False
 
-funcP Sfunc{} = True
-funcP _ = False
+float (Flt _) = True
+float _ = False
 
-macroP Smacro{} = True
-macroP _ = False
+number = integer ||| float
 
-worldP (Sworld _) = True
-worldP _ = False
+bool (Bln _) = True
+bool _ = False
 
-refP (Sref _) = True
-refP _ = False
+function Fn{isMacro = m} = not m
+function _ = False
 
-handleP (Shandle _) = True
-handleP _ = False
+macro Fn{isMacro = m} = m
+macro _ = False
 
-symP (Ssym _) = True
-symP _ = False
+applicable = function ||| macro ||| primitive
 
-listP (Slist _) = True
-listP _ = False
+world (Wd _) = True
+world _ = False
 
-primP (Sprim _) = True
-primP _ = False
+ref (Ref _) = True
+ref _ = False
 
-guard' as tg = Sprim . guard as tg
+port (Prt _) = True
+port _ = False
 
-guard :: ArgSpec -> [Predicate] -> ([Sval] -> Int -> IO (Either String Sval)) -> [Sval] -> Int -> IO (Either String Sval)
-guard as tg fn vs
-  | Left err <- lc as vs = const . return $ Left err
-  | and $ zipWith ($) tg vs = fn vs
-  | otherwise = const $ return typeError
-  where typeError = Left $ "ERROR: bad type: " ++ show (Slist vs)
+symbol (Sym _) = True
+symbol _ = False
 
-noop = const True
+list (Lst _) = True
+list _ = False
 
-lc :: ArgSpec -> [Sval] -> Either String ()
-lc spec vs
-  | Any <- spec    = return ()
-  | Exactly n <- spec
-  , length vs == n = return ()
-  | AtMost n <- spec
-  , length vs <= n = return ()
-  | AtLeast n <- spec
-  , length vs >= n = return ()
+primitive (Primitive _) = True
+primitive _ = False
+
+strings = repeat string
+numbers = repeat number
+integers = repeat integer
+floats = repeat float
+bools = repeat bool
+functions = repeat function
+macros = repeat macro
+worlds = repeat world
+refs = repeat ref
+ports = repeat port
+symbols = repeat symbol
+lists = repeat list
+primitives = repeat primitive
+arguments = repeat anyValue
+
+taking :: ArgSpec -> WispFn -> WispFn
+taking as fn vs
+  | Left err <- guard as vs = \_ -> return $ Left err
+  | otherwise = fn vs
+
+guard :: ArgSpec -> [Val] -> Either String ()
+guard spec vs
+  | AnyNumber gs <- spec = validate gs
+  | Exactly n gs <- spec
+  , length vs == n = validate gs
+  | AtMost n gs <- spec
+  , length vs <= n = validate gs
+  | AtLeast n gs <- spec
+  , length vs >= n = validate gs
   | otherwise = Left $ "ERROR: wrong number of arguments: " ++ show (length vs) ++ " for " ++ show spec
+  where validate gs = if and $ zipWith ($) gs vs then return ()
+                      else Left $ "ERROR: bad type: " ++ show (Lst vs)
 
 p1 ||| p2 = \s -> p1 s || p2 s
-p1 &&& p2 = \s -> p1 s && p2 s
 
-data ArgSpec = Exactly Int | AtLeast Int | AtMost Int | Any
+data ArgSpec = Exactly Int [Pred] | AtLeast Int [Pred] | AtMost Int [Pred] | AnyNumber [Pred]
 
 instance Show ArgSpec where
-  show (Exactly n) = "exactly "  ++ show n
-  show (AtLeast n) = "at least " ++ show n
-  show (AtMost n)  = "at most "  ++ show n
+  show (Exactly n _) = "exactly "  ++ show n
+  show (AtLeast n _) = "at least " ++ show n
+  show (AtMost n _)  = "at most "  ++ show n
+  show (AnyNumber _) = "any number"
 

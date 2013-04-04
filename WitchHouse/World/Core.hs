@@ -42,7 +42,7 @@ import WitchHouse.Types
 make :: String -> World -> IO World
 make n w = do
   o <- mkObj
-  bind (objId o) (pack "*name*") (Sstring n)
+  bind (objId o) (pack "*name*") (Str n)
   return $ zIns o w
 
 -- | Create a new obj. In IO because we need to grab a new Unique identifier.
@@ -162,25 +162,25 @@ find' p s w = case find p s w of Right w' -> w'
 name :: Obj -> String
 name o = unsafePerformIO $ do
   n <- lookup (pack "*name*") (objId o)
-  return $ case n of Right (Sstring s) -> s
+  return $ case n of Right (Str s) -> s
                      _ -> ""
 
 description :: Obj -> String
 description o = unsafePerformIO $ do
   n <- lookup (pack "*desc*") (objId o)
-  return $ case n of Right (Sstring s) -> s
+  return $ case n of Right (Str s) -> s
                      _ -> ""
 
 password :: Obj -> Maybe String
 password o = unsafePerformIO $ do
   n <- lookup (pack "*password*") (objId o)
-  return $ case n of Right (Sstring s) -> Just s
+  return $ case n of Right (Str s) -> Just s
                      _ -> Nothing
 
 handle :: Obj -> Maybe Handle
 handle o = unsafePerformIO $ do
   n <- lookup (pack "*handle*") (objId o)
-  return $ case n of Right (Shandle h) -> Just h
+  return $ case n of Right (Prt h) -> Just h
                      _ -> Nothing
 
 {- OBJECT PREDICATES -}

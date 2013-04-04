@@ -66,7 +66,7 @@ options = [ Option "" ["cores"]
 runFile f opts = do
   load toplevel testLib
   t <- readFile f
-  r <- evalWisp toplevel (unlines ["(begin", t, ")"])
+  r <- evalWisp toplevel (unlines ["(do", t, ")"])
   case r of Right _ -> exitSuccess
             Left err -> putStrLn err >> exitFailure
 
@@ -147,6 +147,6 @@ defaults = do
 blankWorld :: IO World
 blankWorld = do
   root <- mkObj
-  bind (objId root) (pack "*name*") (Sstring "Root")
+  bind (objId root) (pack "*name*") (Str "Root")
   return (root{start = True}, [])
 

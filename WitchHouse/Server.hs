@@ -85,7 +85,7 @@ login h mw = maybe exitSuccess (session h mw) =<< tryLogin
 
     loginFailure s = hPutStrLn h s >> hClose h >> exitSuccess
 
-    loginExisting (p,_) = do bind (objId p) (pack "*handle*") (Shandle h)
+    loginExisting (p,_) = do bind (objId p) (pack "*handle*") (Prt h)
                              hPutStrLn h (welcomeMsg $ name p) >> hFlush h
                              return p
 
@@ -107,9 +107,9 @@ welcomeMsg n = "Welcome, " ++ n ++ ".\nType `help' for help."
 mkPlayer :: String -> String -> Handle -> IO Obj
 mkPlayer n pw h = do
   o@(Obj{objId = f}) <- mkObj
-  bind f (pack "*name*")     (Sstring n)
-  bind f (pack "*password*") (Sstring pw)
-  bind f (pack "*handle*")   (Shandle h)
+  bind f (pack "*name*")     (Str n)
+  bind f (pack "*password*") (Str pw)
+  bind f (pack "*handle*")   (Prt h)
   return o
 
 session :: Handle -> MVar World -> Obj -> IO ()
