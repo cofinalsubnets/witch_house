@@ -59,7 +59,7 @@ bindings = M.fromList $
   , (pack "*",          math (*))
   , (pack "/",          p_div)
   , (pack "=",          p_eq)
-  , (pack "eval",       Primitive $ taking (Exactly 1 arguments) (eval . head))
+  , (pack "eval",       p_eval)
   , (pack "apply",      p_apply)
   , (pack "str",        p_str)
   , (pack "symbol",     p_sym)
@@ -76,7 +76,7 @@ bindings = M.fromList $
   , (pack "symbol?",    check symbol   )
   , (pack "primitive?", check primitive  )
   , (pack "macro?",     check macro )
-  , (pack "port?",    check port)
+  , (pack "port?",      check port)
   , (pack "ref?",       check ref   )
   , (pack "<",          p_lt)
   , (pack "make-ref",      p_mk_ref     )
@@ -100,7 +100,7 @@ check p = Primitive $ pure $ \vs _ -> Bln $ all p vs
 p_str = Primitive
       $ taking (AnyNumber arguments)
       $ pure
-      $ \ps _ -> Str $ concatMap stringify ps
+      $ const . Str . concatMap stringify
   where stringify (Str s) = s
         stringify v = show v
 
@@ -129,6 +129,10 @@ p_int = Primitive
       $ const . intg
   where intg [Flt f] = Int $ floor f
         intg [n] = n
+
+p_eval = Primitive
+       $ taking (Exactly 1 arguments)
+       $ eval . head
 
 -- | raise an error
 p_err = Primitive
@@ -208,18 +212,18 @@ eval :: Val -> Int -> IO (Either String Val)
 eval v f
  | Sym s <- v = lookup s f
  | Lst (o:vs) <- v = case o of
-   SFbegin -> f_begin vs f >>= trap ($())
-   SFquote -> f_quote vs f
-   SFif -> f_if vs f
+   SFbegin  -> f_begin vs f >>= trap ($())
+   SFquote  -> f_quote vs f
+   SFif     -> f_if vs f
    SFlambda -> f_fn False vs f
-   SFset -> f_set vs f
+   SFmacro  -> f_fn True vs f
+   SFset    -> f_set vs f
    SFsplice -> f_splice vs f
-   SFmerge -> f_splice vs f
-   SFmacro -> f_fn True vs f
-   SFunset -> f_unset vs f
-   SFas -> f_as vs f
-   SFqq -> f_quasiq vs f
-   SFdef -> f_define vs f
+   SFmerge  -> f_splice vs f
+   SFunset  -> f_unset vs f
+   SFas     -> f_as vs f
+   SFqq     -> f_quasiq vs f
+   SFdef    -> f_define vs f
    _ -> eval o f >>= trap (_apply vs)
  | otherwise = return $ return v
 
